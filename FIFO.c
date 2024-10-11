@@ -7,7 +7,7 @@
 #define TRUE 1
 
 int main() {    
-    printf("Arquivo principal\n");
+    printf("Algoritmo FIFO\n");
 
     const char *filename = "entradaMemoria.txt";
     FILE *fp = fopen(filename, "r");
