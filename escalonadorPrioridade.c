@@ -63,7 +63,7 @@ void *recebe_novos_processos(void* arg){
     int teste = 0;
     
     iterador = *(int*)arg;
-    printf("Caso deseja inserir um novo processo siga o padrão: nome do processo|Id|Tempo de execução|Prioridade\n");
+    printf("Caso deseja inserir um novo processo siga o padrão: \nnome do processo|Id|Tempo de execução|Prioridade|QtdMemoria|Seq de Acessos\n");
 
     while (true){
         fgets(linha, sizeof(linha), stdin);
@@ -143,9 +143,10 @@ void *executando_processos(void* arg){
                 lista_processosPR[posicao].prioridade = 0;          
             }
 
-            printf("Id do processo:%d\nTempo de execucao do processo:%d\nLatencia do processo:%d\n", 
+            printf("Id: %d\nTempo de execucao: %d\nPrioridade: %d\nLatencia: %d\n", 
             lista_processosPR[posicao].id, 
             lista_processosPR[posicao].tempo_execucao, 
+            lista_processosPR[posicao].prioridade, 
             lista_processosPR[posicao].latencia);
 
             pthread_mutex_unlock(&mutex_prioridade); 
@@ -166,46 +167,22 @@ void *executando_processos(void* arg){
 }
 
 //Fução main que rebece que inicia as threads, mutex, recebe os valores do arquivo txt. No final libera memória da lista, encerra as threads e destroi o mutex.
-void escalonadorPrioridade(){
-    char linha[50];
-    int controlador = 0, numero_processos = 0, i = 0;
-    int clock;
-
-    numero_processos = conta_processos();
-    lista_processosPR = malloc(numero_processos * sizeof(DadosProcessos));
-
-    FILE *arquivo_2 = fopen("entradaEscalonador1.txt", "r");
-
-    while (fgets(linha, sizeof(linha), arquivo_2) != NULL){
-        if (controlador == 0){
-            strtok(linha, "|");
-            clock = atoi(strtok(NULL, "|"));
-            controlador++;
-        }
-        else{            
-            strcpy(lista_processosPR[i].nome_processo, strtok(linha, "|"));
-            lista_processosPR[i].id = atoi(strtok(NULL, "|"));
-            lista_processosPR[i].tempo_execucao = atoi(strtok(NULL, "|"));
-            lista_processosPR[i].prioridade = atoi(strtok(NULL, "|"));
-            lista_processosPR[i].latencia = 0;
-            i++;
-        }
-    }
-    fclose(arquivo_2);
+void escalonadorPrioridade(DadosProcessos *listaP, int numeroProcessos, int clock) {
+    lista_processosPR = malloc(numeroProcessos * sizeof(DadosProcessos));
+    memcpy(lista_processosPR, listaP, numeroProcessos * sizeof(DadosProcessos));
+    iterador = numeroProcessos;
 
     pthread_t executando_processo, lendo_novo_processo;
     pthread_mutex_init(&mutex_prioridade, NULL);
 
-    pthread_create(&lendo_novo_processo, NULL, &recebe_novos_processos, &numero_processos);
+    pthread_create(&lendo_novo_processo, NULL, &recebe_novos_processos, &iterador);
     pthread_create(&executando_processo, NULL, &executando_processos, &clock);
 
-    pthread_join(executando_processo,NULL);
-
+    pthread_join(executando_processo, NULL);
     pthread_cancel(lendo_novo_processo);
 
     pthread_mutex_destroy(&mutex_prioridade);
 
     criando_arquivo();
-
     free(lista_processosPR);
 }
