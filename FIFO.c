@@ -8,11 +8,8 @@
 #define MAX_PROCESSES 100
 #define MAX_SEQ_LENGTH 100
 
-char line[MAX_LINE_LENGTH];
-int lineCount = 0;
-
-//Dados dos processos
-typedef struct{
+// Dados dos processos
+typedef struct {
     char nome_processo[50];
     int id,
         prioridade,
@@ -22,32 +19,32 @@ typedef struct{
         tamanho_sequencia;
 } DadosProcessos;
 
+char algDeEscalonamento[50];
 char politicaDeMemoria[50];
 int tamanhoMemoria, tamanhoPagina, percentualAlocacao, acessoPorCiclo;
 
-DadosProcessos *listaP = NULL; //Criando a lista onde os processos vão ser armazenados.
-int main() {    
-    printf("Algoritmo FIFO\n");
+DadosProcessos *listaP = NULL; // Ponteiro para a lista de processos
 
-    FILE *file = fopen("entradaMemoria.txt", "r");
+// Função para ler os processos do arquivo
+int read_process(const char *nome_arquivo, DadosProcessos *listaP) {
+    FILE *file = fopen(nome_arquivo, "r");
     if (file == NULL) {
         perror("Erro ao abrir o arquivo");
-        exit(EXIT_FAILURE);
+        return -1;
     }
 
-    DadosProcessos listaP[MAX_PROCESSES];
+    int i = 0;
     int lineCount = 0;
     char line[MAX_LINE_LENGTH];
-    int i = 0;
     int controlador = 0;
 
     while (fgets(line, sizeof(line), file) != NULL) {
-        // Remova o caractere de nova linha (\n) se existir
+        // Remover o caractere de nova linha (\n), se existir
         line[strcspn(line, "\n")] = 0;
 
         if (controlador == 0) {
             // Ler as informações de configuração
-            strtok(line, "|");
+            strcpy(algDeEscalonamento, strtok(line, "|"));
             int clock = atoi(strtok(NULL, "|"));
             strcpy(politicaDeMemoria, strtok(NULL, "|"));
             tamanhoMemoria = atoi(strtok(NULL, "|"));
@@ -55,13 +52,6 @@ int main() {
             percentualAlocacao = atoi(strtok(NULL, "|"));
             acessoPorCiclo = atoi(strtok(NULL, "|"));
             controlador++;
-
-            printf("Clock: %d\n", clock);
-            printf("Política de Memória: %s\n", politicaDeMemoria);
-            printf("Tamanho Memória: %d\n", tamanhoMemoria);
-            printf("Tamanho Página: %d\n", tamanhoPagina);
-            printf("Percentual de Alocação: %d\n", percentualAlocacao);
-            printf("Acesso por Ciclo: %d\n", acessoPorCiclo);
         } else {
             // Processar informações de cada processo
             strcpy(listaP[i].nome_processo, strtok(line, "|"));
@@ -86,9 +76,11 @@ int main() {
     }
 
     fclose(file);
+    return lineCount;
+}
 
-    // Exibir informações dos processos
-    for (int j = 0; j < lineCount; j++) {
+void show_process(DadosProcessos *listaP, int numeroProcessos) {
+    for (int j = 0; j < numeroProcessos; j++) {
         printf("\nProcesso: %s\n", listaP[j].nome_processo);
         printf("ID: %d\n", listaP[j].id);
         printf("Tempo de Execução: %d\n", listaP[j].tempo_execucao);
@@ -100,6 +92,29 @@ int main() {
         }
         printf("\n");
     }
+}
+
+int main() {
+    printf("Algoritmo FIFO\n");
+
+    // Alocar memória para a lista de processos
+    listaP = (DadosProcessos *)malloc(MAX_PROCESSES * sizeof(DadosProcessos));
+    if (listaP == NULL) {
+        perror("Erro ao alocar memória para a lista de processos");
+        return EXIT_FAILURE;
+    }
+
+    // Chamar a função para ler processos do arquivo
+    int numeroProcessos = read_process("entradaMemoria.txt", listaP);
+    if (numeroProcessos == -1) {
+        free(listaP); // Liberar a memória alocada
+        return EXIT_FAILURE;
+    }
+
+    show_process(listaP, numeroProcessos);
+
+    // Liberar a memória alocada
+    free(listaP);
 
     return 0;
 }
