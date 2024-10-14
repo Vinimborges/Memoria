@@ -21,12 +21,14 @@ typedef struct {
         qtdMemoria,
         sequencia[MAX_SEQ_LENGTH],
         tamanho_sequencia,
-        latencia;
+        estadoSequencia,
+        latencia,
+        trocasDePaginas;
 } DadosProcessos;
 
 char algDeEscalonamento[50];
 char politicaDeMemoria[50];
-int clockCPU, tamanhoMemoria, tamanhoPagina, percentualAlocacao, acessoPorCiclo;
+int clockCPU, tamanhoMemoria, tamanhoPagina, percentualAlocacao, acessoPorCiclo, acessosNaMemoria;
 int *primaryMemory;
 
 typedef struct {
@@ -93,13 +95,10 @@ int availableMemory(){
 
 void initOldestProcess(int id, int start, int end) {
     oldestProcess = (ProcessInMemory *)malloc(sizeof(ProcessInMemory));
-
     if (oldestProcess == NULL) {
         printf("Erro ao alocar memória.\n");
-        exit(1);  // Encerra o programa em caso de erro
+        exit(1); 
     }
-
-    // Atribuir valores
     oldestProcess->id = id;
     oldestProcess->start = start;
     oldestProcess->end = end;
@@ -107,12 +106,10 @@ void initOldestProcess(int id, int start, int end) {
 
 void initNewestProcess(int id, int start, int end) {
     newestProcess = (ProcessInMemory *)malloc(sizeof(ProcessInMemory));
-
     if (newestProcess == NULL) {
         printf("Erro ao alocar memória.\n");
         exit(1);
     }
-
     newestProcess->id = id;
     newestProcess->start = start;
     newestProcess->end = end;
@@ -182,14 +179,21 @@ void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
                 }
             }
         }
-        // print_primary_memory();
     } 
     print_memory_processes();
+    // print_primary_memory();
 
     ProcessInMemory processData = findProcessByIdData(memoryProcesses, nOfProcessesMemory, listaP[posicao].id);
-    for(int i = processData.start; i <= processData.end; i++){
-        printf("%d",primaryMemory[i]);
+    // for(int i = processData.start; i <= processData.end; i++){
+    //     printf("%d",primaryMemory[i]);
+    // }
+    printf("Acesso a memoria: ");
+    for(int i = listaP[posicao].estadoSequencia; i < (listaP[posicao].estadoSequencia + acessosNaMemoria); i++){
+        if(listaP[posicao].sequencia[i] != 0){
+            printf("%d ",listaP[posicao].sequencia[i]);
+        }
     }
+    listaP[posicao].estadoSequencia += acessosNaMemoria;
     printf("\n");
     // TUDO CERTO ATE AQUI
 }
@@ -221,6 +225,8 @@ int read_process(const char *nome_arquivo, DadosProcessos *listaP) {
             tamanhoPagina = atoi(strtok(NULL, "|"));
             percentualAlocacao = atoi(strtok(NULL, "|"));
             acessoPorCiclo = atoi(strtok(NULL, "|"));
+
+            acessosNaMemoria = clockCPU * acessoPorCiclo;
             controlador++;
 
             int *temp = realloc(primaryMemory,( tamanhoMemoria * sizeof(int)));
@@ -233,6 +239,8 @@ int read_process(const char *nome_arquivo, DadosProcessos *listaP) {
             listaP[i].tempo_execucao = atoi(strtok(NULL, "|"));
             listaP[i].prioridade = atoi(strtok(NULL, "|"));
             listaP[i].qtdMemoria = atoi(strtok(NULL, "|"));
+            listaP[i].estadoSequencia = 0;
+            listaP[i].trocasDePaginas = 0;
 
             // Ler e armazenar a sequência
             char *sequencia_str = strtok(NULL, "|");
