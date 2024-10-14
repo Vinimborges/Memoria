@@ -182,9 +182,9 @@ void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
                 }
             }
         }
-        print_memory_processes();
         // print_primary_memory();
     } 
+    print_memory_processes();
 
     ProcessInMemory processData = findProcessByIdData(memoryProcesses, nOfProcessesMemory, listaP[posicao].id);
     for(int i = processData.start; i <= processData.end; i++){
@@ -367,20 +367,42 @@ void *recebe_novos_processos(void* arg){
         listaP = realloc(listaP, iterador * sizeof(DadosProcessos));
         
         char nome[50];
-        int id , tempo, prioridade;
-        int result = sscanf(linha, "%[^|]|%d|%d|%d", nome, &id, &tempo, &prioridade); 
+        int id, tempo, prioridade, qtdMemoria;
+        char* sequencia_str;
         
-        if (result == 4) { 
+        // Tenta ler os 5 campos principais
+        int result = sscanf(linha, "%[^|]|%d|%d|%d|%d|%m[^\n]", nome, &id, &tempo, &prioridade, &qtdMemoria, &sequencia_str); 
+        
+        if (result == 6) {  // Certifique-se de que 6 campos foram lidos corretamente
             strcpy(listaP[iterador - 1].nome_processo, nome);
             listaP[iterador - 1].id = id;
             listaP[iterador - 1].tempo_execucao = tempo;
             listaP[iterador - 1].prioridade = prioridade;
+            listaP[iterador - 1].qtdMemoria = qtdMemoria;
             listaP[iterador - 1].latencia = 0;
+            listaP[iterador - 1].tamanho_sequencia = 0;
 
+            // Lê a sequência de acessos se existir
+            if (sequencia_str != NULL) {
+                char *token = strtok(sequencia_str, " ");
+                while (token != NULL) {
+                    listaP[iterador - 1].sequencia[listaP[iterador - 1].tamanho_sequencia++] = atoi(token);
+                    token = strtok(NULL, " ");
+                }
+                free(sequencia_str);  // Libera a memória alocada pelo sscanf
+            }
+
+            // Exibe o processo adicionado
             printf("Novo processo adicionado: %s\n", listaP[iterador - 1].nome_processo);
             printf("Id: %d \n", listaP[iterador - 1].id);
             printf("Clock: %d \n", listaP[iterador - 1].tempo_execucao);
-            printf("Prioridade: %d \n\n", listaP[iterador - 1].prioridade);
+            printf("Prioridade: %d \n", listaP[iterador - 1].prioridade);
+            printf("QtdMemoria: %d \n", listaP[iterador - 1].qtdMemoria);
+            printf("Sequência de Acessos: ");
+            for (int i = 0; i < listaP[iterador - 1].tamanho_sequencia; i++) {
+                printf("%d ", listaP[iterador - 1].sequencia[i]);
+            }
+            printf("\n\n");
         }
         else {
             int result = sscanf(linha, "%s", nome);
