@@ -48,7 +48,7 @@ DadosProcessos *listaP = NULL; // Ponteiro para a lista de processos
 
 // Imprime os processos que estão na memoria principal com a posição de inicio e fim
 int print_memory_processes() {
-    printf("\nProcessos na memória pricipal:\n");
+    printf("\n --------- Processos na Memória Pricipal -------------\n");
     if (memoryProcesses == NULL || nOfProcessesMemory == 0) {
         printf("Nenhum processo está atualmente na memória.\n");
         return 0;
@@ -64,7 +64,7 @@ int print_memory_processes() {
 
 // Imprime o conteudo da memoria principal
 int print_primary_memory() {
-    printf("\nMemória Pricipal:\n");
+    printf("------------- --- Memória Pricipal ------------------------\n");
     for(int j = 0; j < (tamanhoMemoria / tamanhoPagina); j++){
         printf("%d",primaryMemory[j]);
     }
@@ -80,16 +80,14 @@ void addIntoMemory(int start, int end){
     }
 }
 
-// Verifica o quanto ha espaco na memoria
+// Verifica quantas mmolduras existem disponiveis na memoria
 int availableMemory(){
-    // printf("\nOldest Process ID: %d, Start: %d, End: %d\n", oldestProcess->id, oldestProcess->start, oldestProcess->end);
     int empty = 0;
     for (int i = 0; i < (tamanhoMemoria / tamanhoPagina); i++) {
         if (primaryMemory[i] == 0) {  // Considera 0 como um espaço vazio
             empty++;
         }
     }
-    printf("Vazio %d\n",empty);
     return empty;
 }
 
@@ -135,20 +133,30 @@ ProcessInMemory findProcessByIdData(ProcessInMemory *processList, int size, int 
     return result;  // Retorna a estrutura
 }
 
+int pageInMemory(int id, int page){
+    ProcessInMemory processData = findProcessByIdData(memoryProcesses, nOfProcessesMemory, id);
+
+    for (int i = processData.start; i <= processData.end; i++) {
+        if (primaryMemory[i] == page) {  
+            return 1;
+        }
+    }
+    printf("Pagina %d nao esta na memoria\n",page);
+    return 0;
+}
+
 void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
-    int paginas = listaP[posicao].qtdMemoria / tamanhoPagina - 1;
+    int molduras = ((listaP[posicao].qtdMemoria / tamanhoPagina * percentualAlocacao) / 100);
+
     ProcessInMemory *oldestProcess = (ProcessInMemory *)malloc(sizeof(ProcessInMemory));
-    
+
     if(!findProcessById(memoryProcesses, nOfProcessesMemory, listaP[posicao].id)){ // caso o processo nao esteja na memoria
-        if ((tamanhoMemoria - listaP[posicao].qtdMemoria) >= 0){
-            printf("Coube na memoria\n");
+        if ((tamanhoMemoria - (listaP[posicao].qtdMemoria * percentualAlocacao) / 100) >= 0){  // Verifica se o tamanho necessario do processo cabe na memoria com o percentual de alocacao
             if (memoryProcesses == NULL){
-                printf("Memoria vazia\n");
-                
                 ProcessInMemory process;
                 process.id = listaP[posicao].id;
                 process.start = 0;
-                process.end = paginas;
+                process.end = molduras - 1;
 
                 ProcessInMemory *temp = realloc(memoryProcesses, (nOfProcessesMemory + 1) * sizeof(ProcessInMemory));
                 if (temp == NULL) {
@@ -165,17 +173,30 @@ void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
                 addIntoMemory(process.start,process.end);
             }
             else{
-                if(availableMemory() >= (listaP[posicao].qtdMemoria/tamanhoPagina)){ // Nao precisa remover nenhum processo
+                printf("Precisa de espaco para adicionar as paginas do processo\n");
+                if(availableMemory() >= (molduras)){ // Nao precisa remover nenhum processo tanto para global quanto para local
                     ProcessInMemory process;
                     process.id = listaP[posicao].id;
                     process.start = newestProcess->end + 1;
-                    process.end = process.start + paginas;
+                    process.end = process.start + molduras -1;
 
                     initNewestProcess(process.id, process.start,  process.end); // Atualiza o último processo
                     memoryProcesses = realloc(memoryProcesses, (nOfProcessesMemory + 1) * sizeof(ProcessInMemory));
                     memoryProcesses[nOfProcessesMemory] = process;              // Adiciona na lista de processos na memória
                     nOfProcessesMemory++;
                     addIntoMemory(process.start,process.end);
+                }
+                else{
+                    //caso seja politica global
+                    if (strcmp(politicaDeMemoria,"global")){
+                        printf("GLOBAL\n");
+                        printf("oldest %d\n",oldestProcess->end);
+                        
+
+                    } else{
+                        printf("LOCAL\n");
+                    }
+                    //caso seja politica local
                 }
             }
         }
@@ -184,13 +205,12 @@ void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
     print_primary_memory();
 
     ProcessInMemory processData = findProcessByIdData(memoryProcesses, nOfProcessesMemory, listaP[posicao].id);
-    // for(int i = processData.start; i <= processData.end; i++){
-    //     printf("%d",primaryMemory[i]);
-    // }
-    printf("Acesso a memoria: ");
+    
+    printf("\nAcesso a memoria: ");
     for(int i = listaP[posicao].estadoSequencia; i < (listaP[posicao].estadoSequencia + acessosNaMemoria); i++){
-        if(listaP[posicao].sequencia[i] != 0){
-            printf("%d ",listaP[posicao].sequencia[i]);
+        int page = listaP[posicao].sequencia[i];
+        if(page != 0 &&pageInMemory(listaP[posicao].id,page)){
+            printf("%d ",page);
         }
     }
     listaP[posicao].estadoSequencia += acessosNaMemoria;
