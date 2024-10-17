@@ -9,6 +9,7 @@
 #define MAX_LINE_LENGTH 256
 #define MAX_PROCESSES 100
 #define MAX_SEQ_LENGTH 100
+#define INT_MAX 100000
 
 int iterador = 0;
 
@@ -23,12 +24,20 @@ typedef struct {
         tamanho_sequencia,
         estadoSequencia,
         latencia,
-        trocasDePaginas;
+        trocasDePaginas,
+        espacoMemoria,
+        vezesAcessado;
 } DadosProcessos;
+
+typedef struct {
+    int process,
+        page,
+        frequency;
+} Memory;
 
 char algDeEscalonamento[50];
 char politicaDeMemoria[50];
-int clockCPU, tamanhoMemoria, tamanhoPagina, percentualAlocacao, acessoPorCiclo, acessosNaMemoria;
+int clockCPU, tamanhoMemoria, tamanhoPagina, percentualAlocacao, acessoPorCiclo, acessosNaMemoria, trocasPaginas;
 int *primaryMemory;
 
 typedef struct {
@@ -42,68 +51,123 @@ ProcessInMemory *oldestProcess = NULL;    // Primeiro a entrar na fila
 ProcessInMemory *newestProcess = NULL;    // Ultimo a entrar na fila
 int nOfProcessesMemory = 0;
 
+Memory *pagesInMemory = NULL; // Lista que representa a memória
+
 DadosProcessos *listaP = NULL; // Ponteiro para a lista de processos
 
+
 //------------------------------------------- Algortimo de MEMORIA NUF --------------------------------------------------------------------------------------------
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
-#define MAX_MOLDURAS 100
+int findPageToReplace(Memory *pagesInMemory, int idProcesso){ //Função que encontra página para substituir
+    int frequency = INT_MAX;
+    int page = INT_MAX;
+    int position = -1;
+    for(int i = 0; i < tamanhoMemoria/tamanhoPagina; i++){
 
-typedef struct{
-    int page;
-    int frequency;
-} Moldura;
-
-int findPage(Moldura molduras[], int numMolduras, int page){
-    for (int i = 0; i<numMolduras; i++){
-        if (molduras[i].page == page){
-            return i;
+        if(pagesInMemory[i].process == idProcesso) {
+            if (pagesInMemory[i].frequency < frequency || (pagesInMemory[i].frequency == frequency && pagesInMemory[i].page < page)) {
+                frequency = pagesInMemory[i].frequency;
+                page = pagesInMemory[i].page;
+                position = i;
+            }
         }
     }
-    return -1;
+    return position;
 }
 
-int findPageToReplace(Moldura molduras[], int numMolduras){
-    int minIndex = 0;
-    for (int i; i<numMolduras; i++){
-        if (molduras[i].frequency < molduras[minIndex].frequency || (molduras[i].frequency == molduras[minIndex].frequency && molduras[i].page < molduras[minIndex].page)){
-            minIndex = i;
+void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
+    int paginas = listaP[posicao].qtdMemoria / tamanhoPagina * 75/100;
+    // listaP[posicao].espacoMemoria = paginas;
+    // printf("Páginas %d\n", paginas);
+        
+        for(int i = 0; i < clockCPU * acessoPorCiclo; i++){
+            printf("\n");
+            // printf("Executando pela %d vez \n", i);
+            int k = i;
+            int count = 0;
+            if(listaP[posicao].sequencia[i] == 0){
+                count = count + (clockCPU * acessoPorCiclo) * listaP[posicao].vezesAcessado;
+                k = k + (clockCPU * acessoPorCiclo) * listaP[posicao].vezesAcessado;
+            }
+            // for(int j=0; j < clockCPU * acessoPorCiclo; j++){
+            int posicaoMemoria = 0;
+            while(1){
+                // printf("Posição na memória %d \n", posicaoMemoria);
+                if(listaP[posicao].id == pagesInMemory[posicaoMemoria].process){
+                    if(pagesInMemory[posicaoMemoria].page == 0 && listaP[posicao].espacoMemoria > 0 && listaP[posicao].sequencia[k] != 0){
+                        pagesInMemory[posicaoMemoria].process = listaP[posicao].id;
+                        pagesInMemory[posicaoMemoria].page = listaP[posicao].sequencia[k];
+                        printf("Página %d adicionada na posição %d\n\n", listaP[posicao].sequencia[k], posicaoMemoria);
+                        listaP[posicao].sequencia[k] = 0;
+                        listaP[posicao].espacoMemoria -= 1;
+                        printf("O processo %d tem mais %d de espaço para armazenamento \n", listaP[posicao].id, listaP[posicao].espacoMemoria);
+                        pagesInMemory[posicaoMemoria].frequency +=1;
+                        break;
+                    }
+                    else if(listaP[posicao].sequencia[k] == pagesInMemory[posicaoMemoria].page){
+                        pagesInMemory[posicaoMemoria].frequency +=1;
+                        // printf("Processo: %d | Página: %d | Frequência: %d \n", pagesInMemory[posicaoMemoria].process, pagesInMemory[posicaoMemoria].page, pagesInMemory[posicaoMemoria].frequency);
+                        listaP[posicao].sequencia[k] = 0;
+                        break;
+                    }
+                    else{
+                        posicaoMemoria++;
+                    }
+                }
+                else if(pagesInMemory[posicaoMemoria].process == -1 && listaP[posicao].espacoMemoria > 0 && listaP[posicao].sequencia[k] != 0){
+                        pagesInMemory[posicaoMemoria].process = listaP[posicao].id;
+                        pagesInMemory[posicaoMemoria].page = listaP[posicao].sequencia[k];
+                        printf("Página %d adicionada na posição %d\n\n", listaP[posicao].sequencia[k], posicaoMemoria);
+                        listaP[posicao].sequencia[k] = 0;
+                        // printf("Página %d\n", listaP[posicao].sequencia[k]);
+                        listaP[posicao].espacoMemoria -= 1;
+                        printf("O processo %d tem mais %d de espaço para armazenamento \n", listaP[posicao].id, listaP[posicao].espacoMemoria);
+                        pagesInMemory[posicaoMemoria].frequency +=1;
+                        posicaoMemoria++;
+                        break;
+                }
+                else{
+                    if(listaP[posicao].sequencia[k] != 0){
+                        int posicaoTroca = findPageToReplace(pagesInMemory, listaP[posicao].id);
+                        trocasPaginas++;
+                        pagesInMemory[posicaoTroca].process = listaP[posicao].id;
+                        pagesInMemory[posicaoTroca].page = listaP[posicao].sequencia[k];
+                        pagesInMemory[posicaoTroca].frequency = 1;
+                        printf("Página %d adicionada na posição %d\n\n", listaP[posicao].sequencia[k], posicaoTroca);
+                        listaP[posicao].sequencia[k] = 0;
+                        break;
+                    }
+                    break;
+                }
+            }
+
+            // printf("[");
+
+            // for(int i = 0; i < listaP[posicao].tamanho_sequencia; i++){
+               
+            //     printf(" %d,",listaP[posicao].sequencia[i]);
+
+            // }
+            //     printf(" ]\n");
+            
+            
+//------------------------------------------ Printa a memória ----------------------------------------------------------
+            printf("|--------------------- Memória ---------------------|\n\n");
+            for(int i = 0; i < tamanhoMemoria/tamanhoPagina; i++){
+                if(pagesInMemory[i].process != -1){
+                    printf("Posição: %d Processo: %d | Página: %d | Frequência: %d \n",i, pagesInMemory[i].process, pagesInMemory[i].page, pagesInMemory[i].frequency);
+                }
+            }
+            printf("\n");
+            printf("|---------------------------------------------------|\n");
         }
-    }
-
-    return minIndex;
-}
-
-void NUF(int pages[], int numPages, int numMolduras){
-    Moldura molduras[MAX_MOLDURAS];
-    int trocaPaginas = 0;
-
-    for(int i = 0; i<numMolduras; i++){
-        molduras[i].page = -1;
-        molduras[i].frequency = 0;
-    }
-
-    for(int i = 0; i<numMolduras; i++){
-        int page = pages[i];
-        int pageIndex = findPage(molduras, numMolduras, page);
-
-        if (pageIndex != -1){
-            molduras[pageIndex].frequency++;
+        listaP[posicao].vezesAcessado++;
         }
-        else{
-            trocaPaginas++;
 
-            int newIndex = findPageToReplace(molduras, numMolduras);
+    
 
-            molduras[newIndex].page = page;
-            molduras[newIndex].frequency = 1;
-        }
-    }
 
-    printf("Total de trocas de páginas: %d\n", trocaPaginas);
-}
+
 
 //------------------------------------------- LEITURA DO ARQUIVO DE ENTRADA E MANIPULACAO --------------------------------------------------------------------------------------------
 // Função para ler os processos do arquivo
@@ -136,8 +200,17 @@ int read_process(const char *nome_arquivo, DadosProcessos *listaP) {
             acessosNaMemoria = clockCPU * acessoPorCiclo;
             controlador++;
 
+            pagesInMemory = realloc(pagesInMemory, tamanhoMemoria/tamanhoPagina * sizeof(Memory));
+
+            for (int i = 0; i < tamanhoMemoria/tamanhoPagina; i++){
+                pagesInMemory[i].process = -1;
+                pagesInMemory[i].page = 0;
+                pagesInMemory[i].frequency = 0;
+                printf("Processo: %d | Página: %d | Frequência: %d \n", pagesInMemory[i].process, pagesInMemory[i].page, pagesInMemory[i].frequency);
+            }
+
             int tamanhoUsado = tamanhoMemoria * (percentualAlocacao / 100);
-            int *temp = realloc(primaryMemory,( (tamanhoUsado) * sizeof(int)));
+            int *temp = realloc(primaryMemory,( (tamanhoMemoria) * sizeof(int)));
             primaryMemory = temp;
             printf("Memoria Principal com capacidade de %d bytes\n",tamanhoMemoria);
         } else {
@@ -149,6 +222,7 @@ int read_process(const char *nome_arquivo, DadosProcessos *listaP) {
             listaP[i].qtdMemoria = atoi(strtok(NULL, "|"));
             listaP[i].estadoSequencia = 0;
             listaP[i].trocasDePaginas = 0;
+            listaP[i].espacoMemoria = listaP[i].qtdMemoria / tamanhoPagina * 75/100;
 
             // Ler e armazenar a sequência
             char *sequencia_str = strtok(NULL, "|");
@@ -235,36 +309,30 @@ void *executando_processos(void* arg){
             }
          
             if(listaP[posicao].tempo_execucao <= 0){ //Processo encerrou
-
                 listaP[posicao].prioridade = 0;          
             }
 
-            printf("Id: %d\nTempo de execucao: %d\nPrioridade: %d\nLatencia: %d\nqtdMemoria: %d\n", 
+            printf("Posição: %d\nId: %d\nTempo de execucao: %d\nPrioridade: %d\nLatencia: %d\nqtdMemoria: %d\n", 
+            posicao,
             listaP[posicao].id, 
             listaP[posicao].tempo_execucao, 
             listaP[posicao].prioridade, 
             listaP[posicao].latencia,
             listaP[posicao].qtdMemoria);
 
-            // Aplicacao do algoritmo de gerenciamento de memoria NFU
-            NFU(listaP, posicao, tamanhoMemoria);
+            // Aplicacao do algoritmo de gerenciamento de memoria NUF
+            NUF(listaP, posicao, tamanhoMemoria);
 
-
-            NUF(pages, numPages, numMolduras);
-            int pages[] = {1, 2, 3, 2, 3, 4, 5, 3, 2, 4, 5, 6, 1, 7, 3, 7, 8, 6, 5, 3};
-                int numPages = sizeof(pages) / sizeof(pages[0]);
-                int numMolduras = 4;
-                int i = 0;
-                while(1){
-                    if (pages[i] != '\0'){
-                        printf("%d, ", pages[i]);
-                        i++;
-                    }
-                    else{
-                        break;
+            if(listaP[posicao].tempo_execucao <= 0){ //Processo encerrou
+                for (int i = 0; i < tamanhoMemoria/tamanhoPagina; i++){
+                    if (listaP[posicao].id == pagesInMemory[i].process){
+                        pagesInMemory[i].process = -1;
+                        pagesInMemory[i].page = 0;
+                        pagesInMemory[i].frequency = 0;
                     }
                 }
-
+                printf("Trocas de páginas: %d", trocasPaginas);
+            }
             pthread_mutex_unlock(&mutex_prioridade); 
 
             printf("\n");
@@ -313,6 +381,7 @@ void *recebe_novos_processos(void* arg){
             listaP[iterador - 1].qtdMemoria = qtdMemoria;
             listaP[iterador - 1].latencia = 0;
             listaP[iterador - 1].tamanho_sequencia = 0;
+            listaP[iterador - 1].espacoMemoria = listaP[iterador -1].qtdMemoria / tamanhoPagina * 75/100;
 
             // Lê a sequência de acessos se existir
             if (sequencia_str != NULL) {
@@ -369,7 +438,7 @@ int main() {
     // Imprime os valores dos processos
     show_process(listaP, numeroProcessos);
 
-    printf("\nAlgoritmo FIFO\n");
+    printf("\nAlgoritmo NUF\n");
     iterador = numeroProcessos;
 
     pthread_t executando_processo, lendo_novo_processo;
@@ -383,6 +452,7 @@ int main() {
 
     pthread_mutex_destroy(&mutex_prioridade);
 
+    free(pagesInMemory);
     free(listaP);
     free(oldestProcess);
 
