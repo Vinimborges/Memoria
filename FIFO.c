@@ -22,6 +22,7 @@ typedef struct {
         sequencia[MAX_SEQ_LENGTH],
         tamanho_sequencia,
         estadoSequencia,
+        oldestPagAdded,
         latencia,
         trocasDePaginas;
 } DadosProcessos;
@@ -34,6 +35,7 @@ int *primaryMemory;
 typedef struct {
     int id,
         start,
+        oldestPagAdded,
         end;
 } ProcessInMemory;
 
@@ -75,7 +77,6 @@ int print_primary_memory() {
 void addIntoMemory(int start, int end){
     int totalMolduras = tamanhoMemoria/tamanhoPagina;
     int k = 1; 
-
     if(end < start ){ //significa que e circular
         for (int i = start; i < totalMolduras; i++) {
             primaryMemory[i] = k;
@@ -157,7 +158,7 @@ int findProcessById(ProcessInMemory *processList, int size, int id) {
 }
 
 ProcessInMemory findProcessByIdData(ProcessInMemory *processList, int size, int id) {
-    ProcessInMemory result = {-1, -1, -1};  // Caso não encontre o processo, retorna valores inválidos.
+    ProcessInMemory result = {-1, -1, -1, -1};  // Caso não encontre o processo, retorna valores inválidos.
     for (int i = 0; i < size; i++) {
         if (processList[i].id == id) {
             result = processList[i];  // Atribui a estrutura encontrada à variável result
@@ -191,17 +192,60 @@ int pageInMemory(int id, int page){
     return 0;
 }
 
+void addProcessToMemory(ProcessInMemory process) {
+    initNewestProcess(process.id, process.start, process.end);  // Atualiza o último processo
+    memoryProcesses = realloc(memoryProcesses, (nOfProcessesMemory + 1) * sizeof(ProcessInMemory));
+    if (memoryProcesses == NULL) {
+        perror("Erro ao realocar memória");
+        exit(EXIT_FAILURE);
+    }
+    memoryProcesses[nOfProcessesMemory] = process;             // Adiciona na lista de processos na memória
+    nOfProcessesMemory++;
+    addIntoMemory(process.start, process.end);
+}
+
+void switchPagesInMemory(int page, int posicao, int id){
+    ProcessInMemory processData = findProcessByIdData(memoryProcesses, nOfProcessesMemory, id);
+    printf("\nPAGINA mais antigo é %d\n",processData.oldestPagAdded);
+
+    int oldest = -1;
+    int length = processData.end - processData.start;
+    for(int i = processData.start; i <= processData.end; i++){
+        if (primaryMemory[i] == processData.oldestPagAdded){
+            primaryMemory[i] = page;
+            oldest = processData.oldestPagAdded + 1;
+            break;
+        }
+    }
+    printf("oldest %d length %d\n",oldest,length+2);
+    if(oldest == length + 2){ // Precisa ser circular, entao volta para o inicio
+        oldest = 1;
+    }
+    for(int i = 0; i < nOfProcessesMemory; i++){
+        if (memoryProcesses[i].id == processData.id){
+            memoryProcesses[i].oldestPagAdded = oldest;
+            print_primary_memory();
+        }
+    }
+    printf("\nNovo processo mais antigo é %d\n\n", oldest);
+}
+
 void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria) {
-    int molduras = ((listaP[posicao].qtdMemoria / tamanhoPagina * percentualAlocacao) / 100);
+    int id = listaP[posicao].id;
+    int qtdMemoria = listaP[posicao].qtdMemoria;
+
+    int molduras = ((qtdMemoria / tamanhoPagina * percentualAlocacao) / 100);
     int totalMolduras = tamanhoMemoria/tamanhoPagina;
 
-    if (!findProcessById(memoryProcesses, nOfProcessesMemory, listaP[posicao].id)) { // Caso o processo não esteja na memória
+    ProcessInMemory process;
+
+    if (!findProcessById(memoryProcesses, nOfProcessesMemory, id)) { // Caso o processo não esteja na memória
         if ((tamanhoMemoria - (listaP[posicao].qtdMemoria * percentualAlocacao) / 100) >= 0) {  // Verifica se o tamanho necessário do processo cabe na memória com o percentual de alocação
             if (memoryProcesses == NULL) {
-                ProcessInMemory process;
                 process.id = listaP[posicao].id;
                 process.start = 0;
                 process.end = molduras - 1;
+                process.oldestPagAdded = 1;
 
                 ProcessInMemory *temp = realloc(memoryProcesses, (nOfProcessesMemory + 1) * sizeof(ProcessInMemory));
                 if (temp == NULL) {
@@ -212,17 +256,16 @@ void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria) {
 
                 initOldestProcess(process.id, process.start, process.end); // Armazena o primeiro processo adicionado
                 initNewestProcess(process.id, process.start, process.end); // Armazena o último processo adicionado
-                memoryProcesses[nOfProcessesMemory] = process;              // Adiciona na lista de processos na memória
+                memoryProcesses[nOfProcessesMemory] = process;             // Adiciona na lista de processos na memória
                 nOfProcessesMemory++;
-
                 addIntoMemory(process.start, process.end);
+
             } else {
                 if (availableMemory() >= (molduras)) { // Não precisa remover nenhum processo
-                    ProcessInMemory process;
                     process.id = listaP[posicao].id;
                     process.start = newestProcess->end + 1;
                     process.end = process.start + molduras - 1;
-                        // verificar se esta circular
+                    process.oldestPagAdded = 1;
 
                     initNewestProcess(process.id, process.start, process.end); // Atualiza o último processo
                     memoryProcesses = realloc(memoryProcesses, (nOfProcessesMemory + 1) * sizeof(ProcessInMemory));
@@ -263,23 +306,20 @@ void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria) {
                             initNewestProcess(-1, 0, 0);
                         }
 
-                        ProcessInMemory process;
+                        // ProcessInMemory process;
                         process.id = listaP[posicao].id;
-                        printf("%d %d\n",lastOldestID,newestProcess->id );
                         if(newestProcess->end == 0 && newestProcess->id == -1){
                             process.start = newestProcess->end ;
-                            printf("tem que ser zero\n");
                         }else {
                             process.start = newestProcess->end + 1;
                         }
                         process.end = (process.start + molduras - 1) % totalMolduras;
+                        process.oldestPagAdded = 1;
 
                         initNewestProcess(process.id, process.start, process.end);
-                        // printf("\n ------------------nOfProcessesMemory %d\n", nOfProcessesMemory);
                         if(nOfProcessesMemory == 0){
                             initOldestProcess(process.id, process.start, process.end);
                         }else{
-                            // printf("New Oldest ID %d\n",oldestProcess->id);
                             *oldestProcess = memoryProcesses[0];
                         }
 
@@ -287,8 +327,10 @@ void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria) {
                         memoryProcesses[nOfProcessesMemory] = process;
                         nOfProcessesMemory++;
                         addIntoMemory(process.start, process.end);
-                        
+                    }else{ // Caso a politica seja local
+
                     }
+                    
                 }
             }
         }
@@ -297,18 +339,20 @@ void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria) {
     print_memory_processes();
     print_primary_memory();
 
-    ProcessInMemory processData = findProcessByIdData(memoryProcesses, nOfProcessesMemory, listaP[posicao].id);
-    
     printf("\nAcesso a memoria: ");
     for(int i = listaP[posicao].estadoSequencia; i < (listaP[posicao].estadoSequencia + acessosNaMemoria); i++){
         int page = listaP[posicao].sequencia[i];
-        if(page != 0 && pageInMemory(listaP[posicao].id,page)){
+        if(page != 0 && pageInMemory(id,page)){
             printf("%d ",page);
+        
+        } 
+        else if(page != 0 && !pageInMemory(id,page)){ // Pagina nao esta na memoria
+            switchPagesInMemory(page,posicao,id);
         }
+
     }
     listaP[posicao].estadoSequencia += acessosNaMemoria;
     printf("\n");
-    // TUDO CERTO ATE AQUI
 }
 
 //------------------------------------------- LEITURA DO ARQUIVO DE ENTRADA E MANIPULACAO --------------------------------------------------------------------------------------------

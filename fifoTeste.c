@@ -470,7 +470,7 @@ int main() {
     // }
     int numeroProcessos = 5;
     // Imprime os valores dos processos
-    // show_process(listaP, numeroProcessos);
+    show_process(listaP, numeroProcessos);
 
     printf("\nAlgoritmo FIFO\n");
     int iterador = numeroProcessos;
