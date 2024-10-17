@@ -4,32 +4,23 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <stdbool.h>
-#include "escalonadorPrioridade.h"
+#include "readFile.h"
+
+char algDeEscalonamento[50];
+int clockCPU;
+char politicaDeMemoria[50];
+int tamanhoMemoria;
+int tamanhoPagina;
+int percentualAlocacao;
+int acessoPorCiclo;
+int acessosNaMemoria;
+int *primaryMemory = NULL;
 
 #define MAX_LINE_LENGTH 256
 #define MAX_PROCESSES 100
 #define MAX_SEQ_LENGTH 100
 
 int iterador = 0;
-
-// Dados dos processos
-typedef struct {
-    char nome_processo[50];
-    int id,
-        prioridade,
-        tempo_execucao,
-        qtdMemoria,
-        sequencia[MAX_SEQ_LENGTH],
-        tamanho_sequencia,
-        estadoSequencia,
-        latencia,
-        trocasDePaginas;
-} DadosProcessos;
-
-char algDeEscalonamento[50];
-char politicaDeMemoria[50];
-int clockCPU, tamanhoMemoria, tamanhoPagina, percentualAlocacao, acessoPorCiclo, acessosNaMemoria;
-int *primaryMemory;
 
 typedef struct {
     int id,
@@ -42,7 +33,7 @@ ProcessInMemory *oldestProcess = NULL;    // Primeiro a entrar na fila
 ProcessInMemory *newestProcess = NULL;    // Ultimo a entrar na fila
 int nOfProcessesMemory = 0;
 
-DadosProcessos *listaP = NULL; // Ponteiro para a lista de processos
+DadosProcessos *listaP; // Ponteiro para a lista de processos
 
 //------------------------------------------- Algortimo de MEMORIA FIFO --------------------------------------------------------------------------------------------
 
@@ -311,85 +302,6 @@ void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria) {
     // TUDO CERTO ATE AQUI
 }
 
-//------------------------------------------- LEITURA DO ARQUIVO DE ENTRADA E MANIPULACAO --------------------------------------------------------------------------------------------
-// Função para ler os processos do arquivo
-int read_process(const char *nome_arquivo, DadosProcessos *listaP) {
-    FILE *file = fopen(nome_arquivo, "r");
-    if (file == NULL) {
-        perror("Erro ao abrir o arquivo");
-        return -1;
-    }
-
-    int i = 0;
-    int lineCount = 0;
-    char line[MAX_LINE_LENGTH];
-    int controlador = 0;
-
-    while (fgets(line, sizeof(line), file) != NULL) {
-        // Remover o caractere de nova linha (\n), se existir
-        line[strcspn(line, "\n")] = 0;
-
-        if (controlador == 0) {
-            // Ler as informações de configuração
-            strcpy(algDeEscalonamento, strtok(line, "|"));
-            clockCPU = atoi(strtok(NULL, "|"));
-            strcpy(politicaDeMemoria, strtok(NULL, "|"));
-            tamanhoMemoria = atoi(strtok(NULL, "|"));
-            tamanhoPagina = atoi(strtok(NULL, "|"));
-            percentualAlocacao = atoi(strtok(NULL, "|"));
-            acessoPorCiclo = atoi(strtok(NULL, "|"));
-
-            acessosNaMemoria = clockCPU * acessoPorCiclo;
-            controlador++;
-
-            int tamanhoUsado = tamanhoMemoria * (percentualAlocacao / 100);
-            int *temp = realloc(primaryMemory,( (tamanhoMemoria) * sizeof(int)));
-            primaryMemory = temp;
-            printf("Memoria Principal com capacidade de %d bytes\n",tamanhoMemoria);
-        } else {
-            // Processar informações de cada processo
-            strcpy(listaP[i].nome_processo, strtok(line, "|"));
-            listaP[i].id = atoi(strtok(NULL, "|"));
-            listaP[i].tempo_execucao = atoi(strtok(NULL, "|"));
-            listaP[i].prioridade = atoi(strtok(NULL, "|"));
-            listaP[i].qtdMemoria = atoi(strtok(NULL, "|"));
-            listaP[i].estadoSequencia = 0;
-            listaP[i].trocasDePaginas = 0;
-
-            // Ler e armazenar a sequência
-            char *sequencia_str = strtok(NULL, "|");
-            char *token = strtok(sequencia_str, " ");
-            listaP[i].tamanho_sequencia = 0;
-
-            while (token != NULL) {
-                listaP[i].sequencia[listaP[i].tamanho_sequencia++] = atoi(token);
-                token = strtok(NULL, " ");
-            }
-
-            i++;
-            lineCount++;
-        }
-    }
-
-    fclose(file);
-    return lineCount;
-}
-
-void show_process(DadosProcessos *listaP, int numeroProcessos) {
-    for (int j = 0; j < numeroProcessos; j++) {
-        printf("\nProcesso: %s\n", listaP[j].nome_processo);
-        printf("ID: %d\n", listaP[j].id);
-        printf("Tempo de Execução: %d\n", listaP[j].tempo_execucao);
-        printf("Prioridade: %d\n", listaP[j].prioridade);
-        printf("Qtd Memória: %d\n", listaP[j].qtdMemoria);
-        printf("Sequência Acessos: ");
-        for (int k = 0; k < listaP[j].tamanho_sequencia; k++) {
-            printf("%d ", listaP[j].sequencia[k]);
-        }
-        printf("\n");
-    }
-}
-
 //------------------------------------------- ESCALONADOR DE PROCESSO POR PRIORIDADE ---------------------------------------------------------------------------------------------
 pthread_mutex_t mutex_prioridade;
 //Função para criar um arquivo txt onde estarão armazenados o Id e a Latência de cada processo.
@@ -542,25 +454,26 @@ void *recebe_novos_processos(void* arg){
 
 
 int main() {
+
     // Alocar memória para a lista de processos
-    listaP = (DadosProcessos *)malloc(MAX_PROCESSES * sizeof(DadosProcessos));
+    DadosProcessos *listaP = malloc(sizeof(DadosProcessos) * MAX_PROCESSES);
     if (listaP == NULL) {
         perror("Erro ao alocar memória para a lista de processos");
         return EXIT_FAILURE;
     }
 
     // Chamar a função para ler processos do arquivo
-    int numeroProcessos = read_process("entradaMemoria.txt", listaP);
-    if (numeroProcessos == -1) {
-        free(listaP);
-        return EXIT_FAILURE;
-    }
-
+    // int numeroProcessos = read_process("entradaMemoria.txt", listaP);
+    // if (numeroProcessos == -1) {
+    //     free(listaP);
+    //     return EXIT_FAILURE;
+    // }
+    int numeroProcessos = 5;
     // Imprime os valores dos processos
-    show_process(listaP, numeroProcessos);
+    // show_process(listaP, numeroProcessos);
 
     printf("\nAlgoritmo FIFO\n");
-    iterador = numeroProcessos;
+    int iterador = numeroProcessos;
 
     pthread_t executando_processo, lendo_novo_processo;
     pthread_mutex_init(&mutex_prioridade, NULL);
