@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <stdbool.h>
-#include "escalonadorPrioridade.h"
 
 #define MAX_LINE_LENGTH 256
 #define MAX_PROCESSES 100
@@ -23,7 +22,6 @@ typedef struct {
         latencia,
         trocasDePaginas;
     int capacity;
-    // int pageSequence[MAX_SEQ_LENGTH];  
     int *pageSequence; 
     int pageAmount;
     int positionCounter;
@@ -35,19 +33,13 @@ int clockCPU, tamanhoMemoria, tamanhoPagina, percentualAlocacao, acessoPorCiclo,
 int memorySize = 0;
 int memory_count = 0;
 char method[50];
+int changeCounter = 0;
 // int *primaryMemory;
 
 typedef struct st_memory{
     int processId;
     int page;
 }st_memory;
-
-// typedef struct {
-//     int id,
-//         start,
-//         end;
-// } ProcessInMemory;
-
 
 DadosProcessos *listaP = NULL; // Ponteiro para a lista de processos
 st_memory *memory = NULL;
@@ -163,31 +155,53 @@ int insertPageInMemory(int index, int process_id, int page) {
                 if (strcmp(method, "local") == 0) {
                     printf("Metodo local.\n");
                     int replace_index = findGreatReplacementLocal(index, process_id);
-                    printf("pagina %d sera colocana na posicao %d.\n", page, replace_index);
+                    printf("Pagina %d sera colocana na posicao %d.\n", page, replace_index);
                     memory[replace_index].page = page;
+                    changeCounter++;
                 } else {
                     printf("Metodo global.\n");
                     int replace_index = findGreatReplacementGlobal(index, process_id);
-                    printf("pagina %d sera colocana na posicao %d.\n", page, replace_index);
+                    printf("Pagina %d sera colocana na posicao %d.\n", page, replace_index);
                     memory[replace_index].page = page;
                     listaP[index].positionCounter++;
+                    changeCounter++;
                 } 
             }
             
         } else {
+            printf("Metodo local.\n");
             int replace_index = findGreatReplacementLocal(index, process_id);
-            printf("pagina %d sera colocana na posicao %d.\n", page, replace_index);
+            printf("Pagina %d sera colocana na posicao %d.\n", page, replace_index);
             memory[replace_index].page = page;
+            changeCounter++;
         }
     }
 
     printf("Acesso a pagina %d -", page);
     printf("\n");
     for (int k = 0; k < memory_count; k++) {
-        printf("%d - p%d  ", memory[k].page, memory[k].processId); 
+        printf("%d - p%d,  ", memory[k].page, memory[k].processId); 
     }
     printf("\n");
+}
 
+void removePagesFromMemory(int process_id) {
+    int i = 0;
+
+    while (i < memory_count) {
+        if (memory[i].processId == process_id) {
+            printf("Removendo pagina %d do processo %d na posicao %d.\n", memory[i].page, process_id, i);
+            
+            // Shift para a esquerda: compacta o array de memória
+            for (int j = i; j < memory_count - 1; j++) {
+                memory[j] = memory[j + 1];
+            }
+            
+            memory_count--; 
+        } else {
+            i++; 
+        }
+    }
 }
 //------------------------------------------- LEITURA DO ARQUIVO DE ENTRADA E MANIPULACAO --------------------------------------------------------------------------------------------
 // Função para ler os processos do arquivo
@@ -310,12 +324,13 @@ void *executando_processos(void* arg){
 
         if (maior_prioridade > 0) {
             pthread_mutex_lock(&mutex_prioridade);
-            printf("Processo de id: %d\n", listaP[posicao].id);
+            printf("\n");
+            printf("Processo de ID: %d\n", listaP[posicao].id);
+            printf("\n");
             if (listaP[posicao].tempo_execucao - clock >= 0) {
                 for (int j = 0; j < clock; j++) {
                     for (int k = 0; k < acessoPorCiclo; k++) {
                         insertPageInMemory(posicao, listaP[posicao].id, listaP[posicao].pageSequence[0]);
-                        // printf("%d - p%d\n", listaP[posicao].pageSequence[0], listaP[posicao].id);
                         remove_page(&listaP[posicao]);
                     }
                 }
@@ -324,12 +339,16 @@ void *executando_processos(void* arg){
                 for (int j = 0; j < listaP[posicao].tempo_execucao; j++) {
                     for (int k = 0; k < acessoPorCiclo; k++) {
                         insertPageInMemory(posicao, listaP[posicao].id, listaP[posicao].pageSequence[0]);
-                        // printf("%d - p%d\n", listaP[posicao].pageSequence[0], listaP[posicao].id);
                         remove_page(&listaP[posicao]);
                     }
                 }
                 clock = listaP[posicao].tempo_execucao;
                 listaP[posicao].tempo_execucao = 0;
+            }
+
+            if (listaP[posicao].tempo_execucao == 0) {
+                printf("\n");
+                removePagesFromMemory(listaP[posicao].id);
             }
 
             while(k < iterador) {
@@ -344,17 +363,14 @@ void *executando_processos(void* arg){
                 listaP[posicao].prioridade = 0;          
             }
 
-            printf("Id: %d\nTempo de execucao: %d\nPrioridade: %d\nLatencia: %d\nqtdMemoria: %d\nCapacidade: %d\n", 
-            listaP[posicao].id, 
-            listaP[posicao].tempo_execucao, 
-            listaP[posicao].prioridade, 
-            listaP[posicao].latencia,
-            listaP[posicao].qtdMemoria,
-            listaP[posicao].capacity);
-
-            // Aplicacao do algoritmo de gerenciamento de memoria FIFO
-            // FIFO(listaP, posicao, tamanhoMemoria);
-
+            // printf("Id: %d\nTempo de execucao: %d\nPrioridade: %d\nLatencia: %d\nqtdMemoria: %d\nCapacidade: %d\n", 
+            // listaP[posicao].id, 
+            // listaP[posicao].tempo_execucao, 
+            // listaP[posicao].prioridade, 
+            // listaP[posicao].latencia,
+            // listaP[posicao].qtdMemoria,
+            // listaP[posicao].capacity);
+            
             pthread_mutex_unlock(&mutex_prioridade); 
 
             printf("\n");
@@ -362,9 +378,10 @@ void *executando_processos(void* arg){
         }
         else{
             if ( listaP[iterador-1].id == -1 ){
-                //printf("Thread executar encerrou \n");
+                printf("Thread executar encerrou \n");
                 break;
             }
+            printf("Total de troca de paginas: %d \n", changeCounter);
             printf("Todos os processos foram executados. Deseja encerrar? S \n");
             sleep(3);
         }
@@ -444,6 +461,89 @@ void *recebe_novos_processos(void* arg){
     }
 }
         
+// Função para ler o arquivo e preencher os valores dos algoritmos
+void lerArquivoEAtualizar(const char *algoritmo_atual, int trocas_pagina_atual) {
+    FILE *arquivo = fopen("resultados.txt", "r+");
+    char linha[MAX_LINE_LENGTH];
+    int otimo = -1, fifo = -1, nuf = -1, mru = -1;
+    char *token;
+
+    if (arquivo == NULL) {
+        printf("Erro ao abrir o arquivo.\n");
+        return;
+    }
+
+    // Ler a linha do arquivo que contém os resultados
+    if (fgets(linha, MAX_LINE_LENGTH, arquivo) != NULL) {
+        // Quebrar a linha em tokens para identificar os valores de cada algoritmo
+        token = strtok(linha, "|");
+
+        while (token != NULL) {
+            if (strstr(token, "OTIMO:") != NULL) {
+                sscanf(token, "OTIMO: %d", &otimo);
+            } else if (strstr(token, "FIFO:") != NULL) {
+                sscanf(token, "FIFO: %d", &fifo);
+            } else if (strstr(token, "NUF:") != NULL) {
+                sscanf(token, "NUF: %d", &nuf);
+            } else if (strstr(token, "MRU:") != NULL) {
+                sscanf(token, "MRU: %d", &mru);
+            }
+            token = strtok(NULL, "|");
+        }
+
+        // Atualizar o valor do algoritmo atual, sem modificar os outros
+        if (strcmp(algoritmo_atual, "FIFO") == 0) {
+            fifo = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "NUF") == 0) {
+            nuf = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "MRU") == 0) {
+            mru = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "OTIMO") == 0) {
+            otimo = trocas_pagina_atual;
+        }
+    }
+
+    // Reescrever os valores atualizados na primeira linha do arquivo
+    rewind(arquivo);
+    fprintf(arquivo, "OTIMO: %d |FIFO: %d |NUF: %d |MRU: %d\n", 
+            otimo != -1 ? otimo : -1, 
+            fifo != -1 ? fifo : -1, 
+            nuf != -1 ? nuf : -1, 
+            mru != -1 ? mru : -1);
+
+    // Comparar os valores para encontrar o algoritmo mais próximo de OTIMO
+    int dif_fifo = (fifo != -1) ? abs(fifo - otimo) : -1;
+    int dif_nuf = (nuf != -1) ? abs(nuf - otimo) : -1;
+    int dif_mru = (mru != -1) ? abs(mru - otimo) : -1;
+
+    int menor_diferenca = -1;
+    const char *algoritmo_mais_proximo = NULL;
+
+    // Definir o algoritmo mais próximo e verificar empates
+    if (dif_fifo != -1) {
+        menor_diferenca = dif_fifo;
+        algoritmo_mais_proximo = "FIFO";
+    }
+    if (dif_nuf != -1 && (menor_diferenca == -1 || dif_nuf < menor_diferenca)) {
+        menor_diferenca = dif_nuf;
+        algoritmo_mais_proximo = "NUF";
+    } else if (dif_nuf == menor_diferenca) {
+        algoritmo_mais_proximo = "EMPATE";
+    }
+    if (dif_mru != -1 && (menor_diferenca == -1 || dif_mru < menor_diferenca)) {
+        menor_diferenca = dif_mru;
+        algoritmo_mais_proximo = "MRU";
+    } else if (dif_mru == menor_diferenca && strcmp(algoritmo_mais_proximo, "EMPATE") != 0) {
+        algoritmo_mais_proximo = "EMPATE";
+    }
+
+    // Escrever a segunda linha no arquivo com o resultado
+    fprintf(arquivo, "Algoritmo mais próximo do OTIMO: %s\n", algoritmo_mais_proximo);
+
+    fclose(arquivo);
+
+    printf("Arquivo atualizado com sucesso.\n");
+}
 
 
 int main() {
@@ -461,6 +561,7 @@ int main() {
         free(listaP);
         return EXIT_FAILURE;
     }
+    char algoritmo_atual[] = "OTIMO";
 
     // Imprime os valores dos processos
     show_process(listaP, numeroProcessos);
@@ -472,16 +573,15 @@ int main() {
     pthread_t executando_processo, lendo_novo_processo;
     pthread_mutex_init(&mutex_prioridade, NULL);
 
-    // pthread_create(&lendo_novo_processo, NULL, &recebe_novos_processos, &iterador);
+    pthread_create(&lendo_novo_processo, NULL, &recebe_novos_processos, &iterador);
     pthread_create(&executando_processo, NULL, &executando_processos, &clockCPU);
 
     pthread_join(executando_processo, NULL);
-    // pthread_cancel(lendo_novo_processo);
+    pthread_cancel(lendo_novo_processo);
 
     pthread_mutex_destroy(&mutex_prioridade);
 
     free(listaP);
-    // free(oldestProcess);
 
     return 0;
 }
