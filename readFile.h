@@ -3,19 +3,32 @@
 
 #define MAX_LINE_LENGTH 256
 #define MAX_PROCESSES 100
+#define MAX_SEQ_LENGTH 100
 
-// Definir a estrutura com um nome específico
-typedef struct DadosProcessos {
+// Global variables
+extern char algDeEscalonamento[50];
+extern int clockCPU;
+extern char politicaDeMemoria[50];
+extern int tamanhoMemoria;
+extern int tamanhoPagina;
+extern int percentualAlocacao;
+extern int acessoPorCiclo;
+extern int acessosNaMemoria;
+extern int *primaryMemory;
+
+// Struct definition
+typedef struct {
     char nome_processo[50];
-    int id;
-    int tempo_execucao;
-    int prioridade;
-    int qtdMemoria;
-    int sequencia[50];
-    int tamanho_sequencia;
-    int estadoSequencia;
-    int trocasDePaginas;
-    int latencia;  // Add this member if not already present
+    int id,
+        prioridade,
+        tempo_execucao,
+        qtdMemoria,
+        sequencia[MAX_SEQ_LENGTH],
+        tamanho_sequencia,
+        estadoSequencia,
+        oldestPagAdded,
+        latencia,
+        trocasDePaginas;
 } DadosProcessos;
 
 int read_process(const char *nome_arquivo, DadosProcessos *listaP);
