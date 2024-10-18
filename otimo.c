@@ -370,10 +370,7 @@ void *executando_processos(void* arg){
             // listaP[posicao].latencia,
             // listaP[posicao].qtdMemoria,
             // listaP[posicao].capacity);
-
-            // Aplicacao do algoritmo de gerenciamento de memoria FIFO
-            // FIFO(listaP, posicao, tamanhoMemoria);
-
+            
             pthread_mutex_unlock(&mutex_prioridade); 
 
             printf("\n");
@@ -381,7 +378,7 @@ void *executando_processos(void* arg){
         }
         else{
             if ( listaP[iterador-1].id == -1 ){
-                //printf("Thread executar encerrou \n");
+                printf("Thread executar encerrou \n");
                 break;
             }
             printf("Total de troca de paginas: %d \n", changeCounter);
