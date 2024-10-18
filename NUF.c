@@ -549,7 +549,7 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    char algoritmo_atual[] = "NUF";
+    // char algoritmo_atual[] = "NUF";
 
     // Imprime os valores dos processos
     show_process(listaP, numeroProcessos);
