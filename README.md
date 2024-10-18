@@ -1,20 +1,17 @@
 
 # Gerenciador de Memória
 
-Este projeto consiste na implementação de um 
-
-
+O objetivo deste trabalho é comparar o desempenho de diferentes algoritmos de substituição de página em termos de número de trocas de página, utilizando como referência o algoritmo ótimo. Serão implementados e analisados os seguintes algoritmos:
 
 
 ## 1. Algoritmo Ótimo
-O algoritmos de substituição de páginas ótimo busca minimizar o número de faltas de página, substituindo a página que será acessada mais tarde no futuro em comparação com as outras páginas que já estão na memória. Ele faz isso com base no conhecimento dos acessos futuros, algo que, na prática, é impossível de se prever com precisão, o que torna esse algoritmo teórico.
+O algoritmo de substituição de páginas ótimo busca minimizar o número de faltas de página, substituindo a página que será acessada mais tarde no futuro em comparação com as outras páginas que já estão na memória. Ele faz isso com base no conhecimento dos acessos futuros, algo que, na prática, é impossível de se prever com precisão, o que torna esse algoritmo teórico.
 
 
 
-## 2. Prioridade
+## 2. Menos Recentemente Usada (MRU)
 
-O algoritmo do escalonador por prioridade seleciona o processo que possui a maior prioridade (maior número). Após uma execução (um cloack) do processo selecionado, anteriormente, o algoritmo seleciona mais uma vez o processo de maior prioridade. Quando um processo finaliza sua execução, ele tem sua prioridade é zerada. Esse procedimeto se repete para todos os processos. Depois que todos os processos foram executados, o usuário tem a opção de encerrar o algoritmo (digitando 's') ou passar mais um processo (seguindo o padrão: Nome do processo|id|prioridade|clock). A inserção de novos processos pode ser realizada durante a execução do programa (seguindo o mesmo padrão). 
-
+O algoritmo de substituição de páginas "Menos Recentemente Usada" é uma técnica de gerenciamento de memória que prioriza a permanência na memória das páginas que foram acessadas mais recentemente. Quando ocorre uma falta de página e é necessário substituir uma página na memória, o MRU identifica a página que não foi utilizada por mais tempo e a substitui.
 
 
 ## 3. Loteria

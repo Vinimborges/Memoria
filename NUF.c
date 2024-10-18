@@ -29,11 +29,11 @@ typedef struct {
         vezesAcessado;
 } DadosProcessos;
 
-typedef struct {
+typedef struct { // Estrutura que representa cada espaço da memória
     int process,
         page,
         frequency;
-} Memory;
+} Memory; 
 
 char algDeEscalonamento[50];
 char politicaDeMemoria[50];
@@ -57,35 +57,50 @@ DadosProcessos *listaP = NULL; // Ponteiro para a lista de processos
 
 
 //------------------------------------------- Algortimo de MEMORIA NUF --------------------------------------------------------------------------------------------
-int findGlobalPageToReplace(Memory *pagesInMemory) {
+int findGlobalPageToReplace(Memory *pagesInMemory, int posicao, int idProcesso) { // Função de troca de páginas no escopo Global
     int frequency = INT_MAX;
     int page = INT_MAX;
     int id = INT_MAX;
     int position = -1;
-
-    for (int i = 0; i < tamanhoMemoria / tamanhoPagina; i++) {
-        if (pagesInMemory[i].process != -1) {  // Considera apenas páginas ocupadas
-            if (pagesInMemory[i].frequency < frequency || 
-               (pagesInMemory[i].frequency == frequency && pagesInMemory[i].process < id) || 
-               (pagesInMemory[i].frequency == frequency && pagesInMemory[i].process == id && pagesInMemory[i].page < page)) {
-                frequency = pagesInMemory[i].frequency;
-                page = pagesInMemory[i].page;
-                id = pagesInMemory[i].process;
-                position = i;
+    if(listaP[posicao].espacoMemoria > 0){// Verifica se o processo ainda tem direito de espaço na memória
+        for (int i = 0; i < tamanhoMemoria / tamanhoPagina; i++) { // Se tiver, ele procura páginas nos outros processos
+            if (pagesInMemory[i].process != -1 && pagesInMemory[i].process != idProcesso){ 
+                // Verifica se o processo existe e se é diferente do processo atual
+                if (pagesInMemory[i].frequency < frequency || 
+                (pagesInMemory[i].frequency == frequency && pagesInMemory[i].process < id) || 
+                (pagesInMemory[i].frequency == frequency && pagesInMemory[i].process == id && pagesInMemory[i].page < page)) {
+                    // Verifica se a frequência é menor que a frequência atual e se for verifica qual processo tem menor id
+                    frequency = pagesInMemory[i].frequency;
+                    page = pagesInMemory[i].page;
+                    id = pagesInMemory[i].process;
+                    position = i;
+                }
             }
         }
+    }else{// Se não tiver, ele troca apenas dentro do processo
+        for(int i = 0; i < tamanhoMemoria/tamanhoPagina; i++){
+            if(pagesInMemory[i].process == idProcesso) {
+                if (pagesInMemory[i].frequency < frequency || (pagesInMemory[i].frequency == frequency && pagesInMemory[i].page < page)) {
+                    frequency = pagesInMemory[i].frequency;
+                    page = pagesInMemory[i].page;
+                    position = i;
+                    }
+                }
+        }
     }
+
     
-    return position; // Retorna a posição da página menos usada globalmente
+    return position; 
 }
-int findPageToReplace(Memory *pagesInMemory, int idProcesso){ //Função que encontra página para substituir
+
+int findPageToReplace(Memory *pagesInMemory, int idProcesso){ // Função de troca de página no escopo Local
     int frequency = INT_MAX;
     int page = INT_MAX;
     int position = -1;
     for(int i = 0; i < tamanhoMemoria/tamanhoPagina; i++){
-
         if(pagesInMemory[i].process == idProcesso) {
             if (pagesInMemory[i].frequency < frequency || (pagesInMemory[i].frequency == frequency && pagesInMemory[i].page < page)) {
+                // Verifica se a frequência é menor que a frequência e caso seja igual, pega a página de menor id
                 frequency = pagesInMemory[i].frequency;
                 page = pagesInMemory[i].page;
                 position = i;
@@ -93,32 +108,22 @@ int findPageToReplace(Memory *pagesInMemory, int idProcesso){ //Função que enc
         }
     }
 
-    if (position == -1) {
-        // Escolher uma posição alternativa para a troca, caso nenhuma posição do processo seja encontrada
-        for(int i = 0; i < tamanhoMemoria / tamanhoPagina; i++) {
-            if (pagesInMemory[i].process == -1) {
-                return i;
-            }
-        }
-    }
 
     return position;
 }
 
-// processo4|4|22|90|4096|1 2 2 2 8 8 8 4 4 7 7 7 2 1 3 2 1 2 2 3 4 3 2 2 1 2 2 2 3 4 3 4 4 4 2 3 2 1 3 2 1 2 2 3 4 3 2 2
 
-void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
-    int paginas = listaP[posicao].qtdMemoria / tamanhoPagina * 75 / 100;
+void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){ // Função do algoritmo NUF 
 
-    for(int i = 0; i < clockCPU * acessoPorCiclo; i++) {
+    for(int i = 0; i < clockCPU * acessoPorCiclo; i++) { // Loop que vai acessar x páginas
         int k = i;
-        if (listaP[posicao].sequencia[i] == 0) {
+        if (listaP[posicao].sequencia[i] == 0) {// Vai para a página que ainda não foi acessada na sequência de acessos
             k += (clockCPU * acessoPorCiclo) * listaP[posicao].vezesAcessado;
         }
 
         int posicaoMemoria = 0;
-        while (posicaoMemoria < tamanhoMemoria / tamanhoPagina) {
-            // Verifica se há espaço livre na memória física
+        while (posicaoMemoria < tamanhoMemoria / tamanhoPagina) { // While que percorre a memória
+            // Verifica se tem espaço livre na memória para adicionar uma página
             if (pagesInMemory[posicaoMemoria].process == -1 && listaP[posicao].espacoMemoria > 0 && listaP[posicao].sequencia[k] != 0) {
                 pagesInMemory[posicaoMemoria].process = listaP[posicao].id;
                 pagesInMemory[posicaoMemoria].page = listaP[posicao].sequencia[k];
@@ -128,7 +133,7 @@ void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
                 pagesInMemory[posicaoMemoria].frequency = 1;
                 break;
             }
-            // Caso onde a página já está na memória, incrementa sua frequência
+            // Se a página já está na memória, incrementa a frequência de acessos
             else if (listaP[posicao].id == pagesInMemory[posicaoMemoria].process &&
                      listaP[posicao].sequencia[k] == pagesInMemory[posicaoMemoria].page) {
                 pagesInMemory[posicaoMemoria].frequency += 1;
@@ -138,9 +143,9 @@ void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
             posicaoMemoria++;
         }
 
-        // Caso onde não há mais espaço livre ou o espacoMemoria do processo é <= 0
+        // Condicional que verifica que não há mais espaço livre na memória mas tem páginas para ser acessada ainda, e chama o algoritmo de substituição
         if ((posicaoMemoria >= tamanhoMemoria / tamanhoPagina || listaP[posicao].espacoMemoria <= 0) && listaP[posicao].sequencia[k] != 0) {
-            if(strcmp(politicaDeMemoria, "local") == 0){
+            if(strcmp(politicaDeMemoria, "local") == 0){ // Escopo local
                 
                 int posicaoTroca = findPageToReplace(pagesInMemory, listaP[posicao].id);
 
@@ -153,8 +158,8 @@ void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
                 listaP[posicao].sequencia[k] = 0;
             }
                 
-            }else{
-                int posicaoTroca = findGlobalPageToReplace(pagesInMemory);
+            }else{ // Escopo local
+                int posicaoTroca = findGlobalPageToReplace(pagesInMemory, posicao, listaP[posicao].id);
 
                 if (posicaoTroca != -1) {
                 trocasPaginas++;
@@ -182,7 +187,8 @@ void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
                 }
             }
             printf("\n");
-            printf("|---------------------------------------------------|\n");
+            printf("|---------------------------------------------------|\n\n");
+            sleep(1);
         }
         listaP[posicao].vezesAcessado++;
         }
@@ -370,6 +376,7 @@ void *executando_processos(void* arg){
             sleep(3);
         }
     }
+
 }
 
 //Função que recebe novos processos e armazena numa lista. Durante o procedimento de adicionar um novo processo ele "trava" a função executando_processos usando um mutex.
@@ -441,7 +448,91 @@ void *recebe_novos_processos(void* arg){
         pthread_mutex_unlock(&mutex_prioridade);
     }
 }
-        
+
+// Função para ler o arquivo e preencher os valores dos algoritmos
+void lerArquivoEAtualizar(const char *algoritmo_atual, int trocas_pagina_atual) {
+    FILE *arquivo = fopen("resultados.txt", "r+");
+    char linha[MAX_LINE_LENGTH];
+    int otimo = -1, fifo = -1, nuf = -1, mru = -1;
+    char *token;
+
+    if (arquivo == NULL) {
+        printf("Erro ao abrir o arquivo.\n");
+        return;
+    }
+
+    // Ler a linha do arquivo que contém os resultados
+    if (fgets(linha, MAX_LINE_LENGTH, arquivo) != NULL) {
+        // Quebrar a linha em tokens para identificar os valores de cada algoritmo
+        token = strtok(linha, "|");
+
+        while (token != NULL) {
+            if (strstr(token, "OTIMO:") != NULL) {
+                sscanf(token, "OTIMO: %d", &otimo);
+            } else if (strstr(token, "FIFO:") != NULL) {
+                sscanf(token, "FIFO: %d", &fifo);
+            } else if (strstr(token, "NUF:") != NULL) {
+                sscanf(token, "NUF: %d", &nuf);
+            } else if (strstr(token, "MRU:") != NULL) {
+                sscanf(token, "MRU: %d", &mru);
+            }
+            token = strtok(NULL, "|");
+        }
+
+        // Atualizar o valor do algoritmo atual, sem modificar os outros
+        if (strcmp(algoritmo_atual, "FIFO") == 0) {
+            fifo = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "NUF") == 0) {
+            nuf = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "MRU") == 0) {
+            mru = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "OTIMO") == 0) {
+            otimo = trocas_pagina_atual;
+        }
+    }
+
+    // Reescrever os valores atualizados na primeira linha do arquivo
+    rewind(arquivo);
+    fprintf(arquivo, "OTIMO: %d |FIFO: %d |NUF: %d |MRU: %d\n", 
+            otimo != -1 ? otimo : -1, 
+            fifo != -1 ? fifo : -1, 
+            nuf != -1 ? nuf : -1, 
+            mru != -1 ? mru : -1);
+
+    // Comparar os valores para encontrar o algoritmo mais próximo de OTIMO
+    int dif_fifo = (fifo != -1) ? abs(fifo - otimo) : -1;
+    int dif_nuf = (nuf != -1) ? abs(nuf - otimo) : -1;
+    int dif_mru = (mru != -1) ? abs(mru - otimo) : -1;
+
+    int menor_diferenca = -1;
+    const char *algoritmo_mais_proximo = NULL;
+
+    // Definir o algoritmo mais próximo e verificar empates
+    if (dif_fifo != -1) {
+        menor_diferenca = dif_fifo;
+        algoritmo_mais_proximo = "FIFO";
+    }
+    if (dif_nuf != -1 && (menor_diferenca == -1 || dif_nuf < menor_diferenca)) {
+        menor_diferenca = dif_nuf;
+        algoritmo_mais_proximo = "NUF";
+    } else if (dif_nuf == menor_diferenca) {
+        algoritmo_mais_proximo = "EMPATE";
+    }
+    if (dif_mru != -1 && (menor_diferenca == -1 || dif_mru < menor_diferenca)) {
+        menor_diferenca = dif_mru;
+        algoritmo_mais_proximo = "MRU";
+    } else if (dif_mru == menor_diferenca && strcmp(algoritmo_mais_proximo, "EMPATE") != 0) {
+        algoritmo_mais_proximo = "EMPATE";
+    }
+
+    // Escrever a segunda linha no arquivo com o resultado
+    fprintf(arquivo, "Algoritmo mais próximo do OTIMO: %s\n", algoritmo_mais_proximo);
+
+    fclose(arquivo);
+
+    printf("Arquivo atualizado com sucesso.\n");
+}
+
 
 
 int main() {
@@ -451,13 +542,14 @@ int main() {
         perror("Erro ao alocar memória para a lista de processos");
         return EXIT_FAILURE;
     }
-
     // Chamar a função para ler processos do arquivo
     int numeroProcessos = read_process("entradaMemoria.txt", listaP);
     if (numeroProcessos == -1) {
         free(listaP);
         return EXIT_FAILURE;
     }
+
+    char algoritmo_atual[] = "NUF";
 
     // Imprime os valores dos processos
     show_process(listaP, numeroProcessos);
@@ -473,6 +565,8 @@ int main() {
 
     pthread_join(executando_processo, NULL);
     pthread_cancel(lendo_novo_processo);
+
+    lerArquivoEAtualizar(algoritmo_atual, trocasPaginas);
 
     pthread_mutex_destroy(&mutex_prioridade);
 

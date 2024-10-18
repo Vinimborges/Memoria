@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <stdbool.h>
-#include "escalonadorPrioridade.h"
 
 #define MAX_LINE_LENGTH 256
 #define MAX_PROCESSES 100
@@ -13,7 +12,7 @@
 int iterador = 0;
 
 // Dados dos processos
-typedef struct {
+typedef struct{
     char nome_processo[50];
     int id,
         prioridade,
@@ -23,179 +22,292 @@ typedef struct {
         tamanho_sequencia,
         estadoSequencia,
         latencia,
-        trocasDePaginas;
+        trocasDePaginas,
+        moldurasUsadas;
 } DadosProcessos;
 
+// Variaveis globais
 char algDeEscalonamento[50];
 char politicaDeMemoria[50];
-int clockCPU, tamanhoMemoria, tamanhoPagina, percentualAlocacao, acessoPorCiclo, acessosNaMemoria;
-int *primaryMemory;
-
-typedef struct {
-    int id,
-        start,
-        end;
-} ProcessInMemory;
-
-ProcessInMemory *memoryProcesses = NULL;  // Lista de processos atualmente na memoria
-ProcessInMemory *oldestProcess = NULL;    // Primeiro a entrar na fila
-ProcessInMemory *newestProcess = NULL;    // Ultimo a entrar na fila
-int nOfProcessesMemory = 0;
+int clockCPU, 
+    tamanhoMemoria, 
+    tamanhoPagina, 
+    percentualAlocacao, 
+    acessoPorCiclo, 
+    acessosNaMemoria,
+    moldurasTotais;
 
 DadosProcessos *listaP = NULL; // Ponteiro para a lista de processos
 
 //------------------------------------------- Algortimo de MEMORIA FIFO --------------------------------------------------------------------------------------------
+typedef struct {
+    int id,
+        page,
+        localPosition,
+        globalPosition;
+} Memory;
 
-// Imprime os processos que estão na memoria principal com a posição de inicio e fim
-int print_memory_processes() {
-    printf("\nProcessos na memória pricipal:\n");
-    if (memoryProcesses == NULL || nOfProcessesMemory == 0) {
-        printf("Nenhum processo está atualmente na memória.\n");
-        return 0;
-    }
-    for (int i = 0; i < nOfProcessesMemory; i++) {
-        printf("Process ID: %d, Start: %d, End: %d\n", 
-            memoryProcesses[i].id, 
-            memoryProcesses[i].start, 
-            memoryProcesses[i].end);
-    }
-    return 0;
-}
+Memory *primaryMemory = NULL; // Ponteiro para a lista de processos
+int nOfPagesInMemory = 0;
+int trocasDePaginas = 0;
 
 // Imprime o conteudo da memoria principal
-int print_primary_memory() {
-    printf("\nMemória Pricipal:\n");
-    for(int j = 0; j < (tamanhoMemoria / tamanhoPagina); j++){
-        printf("%d",primaryMemory[j]);
-    }
-    return 0;
-}
-
-// Adiciona valores na memoria, poderiam ser dados ao inves de numeros em ordem
-void addIntoMemory(int start, int end){
-    int k = 1;
-    for(int i = start; i <= end; i++){
-        primaryMemory[i] = k;
-        k++;
+void print_primary_memory() {
+    printf("|----------------------------------------------------------------|\n");
+    printf("|--------------------------- Memória Pricipal -------------------|\n");
+    for (int i = 0; i < moldurasTotais; i++){
+        printf("Posicao: %d | ID: %d | Page: %d | localPosition %d | globalPosition %d\n",i,primaryMemory[i].id, primaryMemory[i].page, primaryMemory[i].localPosition, primaryMemory[i].globalPosition);
     }
 }
 
-// Verifica o quanto ha espaco na memoria
-int availableMemory(){
-    // printf("\nOldest Process ID: %d, Start: %d, End: %d\n", oldestProcess->id, oldestProcess->start, oldestProcess->end);
-    int empty = 0;
-    for (int i = 0; i < (tamanhoMemoria / tamanhoPagina); i++) {
-        if (primaryMemory[i] == 0) {  // Considera 0 como um espaço vazio
-            empty++;
-        }
+void initMemory(){
+    printf("Memoria inicialmente\n");
+    for (int i = 0; i < moldurasTotais; i++){
+        primaryMemory[i].id = -1;
+        primaryMemory[i].page = -1;
+        primaryMemory[i].localPosition = -1;
+        primaryMemory[i].globalPosition = -1;
     }
-    printf("Vazio %d\n",empty);
-    return empty;
+    print_primary_memory();
 }
 
-void initOldestProcess(int id, int start, int end) {
-    oldestProcess = (ProcessInMemory *)malloc(sizeof(ProcessInMemory));
-    if (oldestProcess == NULL) {
-        printf("Erro ao alocar memória.\n");
-        exit(1); 
-    }
-    oldestProcess->id = id;
-    oldestProcess->start = start;
-    oldestProcess->end = end;
-}
-
-void initNewestProcess(int id, int start, int end) {
-    newestProcess = (ProcessInMemory *)malloc(sizeof(ProcessInMemory));
-    if (newestProcess == NULL) {
-        printf("Erro ao alocar memória.\n");
-        exit(1);
-    }
-    newestProcess->id = id;
-    newestProcess->start = start;
-    newestProcess->end = end;
-}
-
-int findProcessById(ProcessInMemory *processList, int size, int id) {
-    for (int i = 0; i < size; i++) {
-        if (processList[i].id == id) {
+int pageInMemory(int id, int page){
+    for (int i = 0; i < moldurasTotais; i++){
+        if(primaryMemory[i].id == id && primaryMemory[i].page == page ){
             return 1;
         }
     }
     return 0;
 }
 
-ProcessInMemory findProcessByIdData(ProcessInMemory *processList, int size, int id) {
-    ProcessInMemory result = {-1, -1, -1};  // Caso não encontre o processo, retorna valores inválidos.
-    for (int i = 0; i < size; i++) {
-        if (processList[i].id == id) {
-            result = processList[i];  // Atribui a estrutura encontrada à variável result
-            break;
+int processInMemory(int id){
+    for (int i = 0; i < moldurasTotais; i++){
+        if(primaryMemory[i].id == id){
+            return 1;
         }
     }
-    return result;  // Retorna a estrutura
+    return 0;
 }
 
-void FIFO(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
-    int paginas = listaP[posicao].qtdMemoria / tamanhoPagina - 1;
-    ProcessInMemory *oldestProcess = (ProcessInMemory *)malloc(sizeof(ProcessInMemory));
+int LocalPriority(int id){  // Percorre a memoria e calcula quantos locais ja tem aquele processo
+    int count = 1;
+    for (int i = 0; i < moldurasTotais; i++){
+        if(primaryMemory[i].id == id){
+            count++;
+        }
+    }
+    // printf("Prioridade do processo: %d \n",count);
+    return count;
+}
+
+int freePosition(){  // Percorre a memoria e calcula quantos locais ja tem aquele processo
+    for (int position = 0; position < moldurasTotais; position++){
+        if(primaryMemory[position].id == -1){
+            // printf("free: %d \n", position);
+            return position;
+        }
+    }
+    return -1;
+}
+
+void reordenaLocalPrioridade(int id){
+    for (int i = 0; i < moldurasTotais; i++){
+        if(primaryMemory[i].id == id){
+            primaryMemory[i].localPosition--;
+        }
+    }
+}
+
+void reordenaGlobalPrioridade(int posicao){
+    for (int i = 0; i < moldurasTotais; i++){
+        if(primaryMemory[i].id != -1 && primaryMemory[i].globalPosition >= posicao){
+            primaryMemory[i].globalPosition--;
+        }
+    }
+}
+
+void addLocalMemory(int id, int page, int posicao){
+    int pos = LocalPriority(id); // Calcula a prioridade do novo processo
+
+    reordenaLocalPrioridade(id); // Diminui uma prioridade de todos 
+    pos--;
     
-    if(!findProcessById(memoryProcesses, nOfProcessesMemory, listaP[posicao].id)){ // caso o processo nao esteja na memoria
-        if ((tamanhoMemoria - listaP[posicao].qtdMemoria) >= 0){
-            printf("Coube na memoria\n");
-            if (memoryProcesses == NULL){
-                printf("Memoria vazia\n");
-                
-                ProcessInMemory process;
-                process.id = listaP[posicao].id;
-                process.start = 0;
-                process.end = paginas;
+    reordenaGlobalPrioridade(posicao); // Diminui uma prioridade de todos 
 
-                ProcessInMemory *temp = realloc(memoryProcesses, (nOfProcessesMemory + 1) * sizeof(ProcessInMemory));
-                if (temp == NULL) {
-                    perror("Erro ao realocar memória");
-                    exit(EXIT_FAILURE);
-                }
-                memoryProcesses = temp;
-                
-                initOldestProcess(process.id, process.start,  process.end); // Armazena o ultimo processo adicionado
-                initNewestProcess(process.id, process.start,  process.end); // Armazena o ultimo processo adicionado
-                memoryProcesses[nOfProcessesMemory] = process;              // adiciona na lista dos processos atuais na memoria
-                nOfProcessesMemory++;
+    int oldpage = primaryMemory[posicao].page;
+    primaryMemory[posicao].page = page;
+    primaryMemory[posicao].localPosition = pos;
+    primaryMemory[posicao].globalPosition = nOfPagesInMemory;
+    printf("Substituido página %d por pagina %d do processo %d na posição %d da memória\n", oldpage, page, id, posicao);
+}
 
-                addIntoMemory(process.start,process.end);
-            }
-            else{
-                if(availableMemory() >= (listaP[posicao].qtdMemoria/tamanhoPagina)){ // Nao precisa remover nenhum processo
-                    ProcessInMemory process;
-                    process.id = listaP[posicao].id;
-                    process.start = newestProcess->end + 1;
-                    process.end = process.start + paginas;
+void libera_memoria(int id){
+    for (int i = 0; i < moldurasTotais; i++){
+        if(primaryMemory[i].id == id){
+            primaryMemory[i].id = -1;
+            primaryMemory[i].page = -1;
+            primaryMemory[i].localPosition = -1;
+            primaryMemory[i].globalPosition = -1;
+            nOfPagesInMemory--;
+        }
+    }
+}
 
-                    initNewestProcess(process.id, process.start,  process.end); // Atualiza o último processo
-                    memoryProcesses = realloc(memoryProcesses, (nOfProcessesMemory + 1) * sizeof(ProcessInMemory));
-                    memoryProcesses[nOfProcessesMemory] = process;              // Adiciona na lista de processos na memória
-                    nOfProcessesMemory++;
-                    addIntoMemory(process.start,process.end);
-                }
+int addPageIntoMemory(int id, int page){
+    int freeP = freePosition();
+    int pos = LocalPriority(id); 
+    nOfPagesInMemory++;
+
+    printf("Adicionando página %d do processo %d na posição %d da memória\n", page, id, freeP);
+    primaryMemory[freeP].id = id;
+    primaryMemory[freeP].page = page;
+    primaryMemory[freeP].localPosition = pos;
+    primaryMemory[freeP].globalPosition = nOfPagesInMemory;
+    return freeP; //retorna a posicao alocada
+}
+
+int findOldestLocal(int id) {
+    int current = -1;
+    int smallest = 0;
+    int key = 0;
+    for (int i = 0; i < moldurasTotais; i++){
+        if(primaryMemory[i].id == id){
+            current = primaryMemory[i].localPosition;
+            if(!key){
+                key = 1;
+                smallest = primaryMemory[i].localPosition;
+            }else{
+                if(current < smallest){
+                    smallest = current;
+                }   
             }
         }
-    } 
-    print_memory_processes();
-    print_primary_memory();
+    }
+    for (int i = 0; i < moldurasTotais; i++){
+        if(primaryMemory[i].id == id && primaryMemory[i].localPosition == smallest){
+            return i; // retorna a posicao desse com menor prioridade (mais velho)
+        }
+    }
 
-    ProcessInMemory processData = findProcessByIdData(memoryProcesses, nOfProcessesMemory, listaP[posicao].id);
-    // for(int i = processData.start; i <= processData.end; i++){
-    //     printf("%d",primaryMemory[i]);
-    // }
-    printf("Acesso a memoria: ");
+    return -1;
+}
+
+int findOldestGlobal() {
+    int current = -1;
+    int smallest = primaryMemory[0].globalPosition;
+    int pos = 0;
+    for (int i = 1; i < moldurasTotais; i++){
+        current = primaryMemory[i].globalPosition;
+        if(current < smallest){
+            smallest = current;
+            pos = i;
+        }
+    }
+
+    return pos;
+}
+
+void addGlobalMemory(int id, int page, int pos,int posicaoP){
+    int posicaoOldProcess;
+    int newPosition = 1;
+    for (int i = 0; i < moldurasTotais; i++){
+        if(i == pos){
+            posicaoOldProcess = i;
+        }
+        if(id == primaryMemory[i].id){
+            newPosition++;
+        }
+    }
+    int oldId = primaryMemory[posicaoOldProcess].id;
+    for (int i = 0; i < MAX_PROCESSES; i++){
+        if(oldId == listaP[i].id){
+            listaP[i].moldurasUsadas--; //Libera uma moldura do processo que estava naquela posicao
+            // printf("id %d mold usadas %d\n",listaP[i].id, listaP[i].moldurasUsadas); //Libera uma moldura do processo que estava naquela posicao
+        }
+    }
+
+    primaryMemory[pos].id = id;
+    primaryMemory[pos].page = page;
+    primaryMemory[pos].localPosition = newPosition;
+    primaryMemory[pos].globalPosition = nOfPagesInMemory;
+    listaP[posicaoP].moldurasUsadas++;
+
+    for (int i = 0; i < moldurasTotais; i++){
+        if(i != pos){
+            primaryMemory[i].globalPosition--;
+        }
+        if (oldId == primaryMemory[i].id){
+            primaryMemory[i].localPosition--;
+        }
+    }
+}
+
+void politicaLocal(int id, int page){
+    int pos = findOldestLocal(id);
+    printf("pos oldest local %d \n",pos);
+    addLocalMemory(id,page,pos);
+}
+
+void politicaGlobal(int id, int page,int posicaoP){
+    int pos = findOldestGlobal(id);
+    addGlobalMemory(id,page,pos,posicaoP);
+}
+
+
+void FIFO(DadosProcessos *listaP, int posicao) {
+    int id = listaP[posicao].id;
+    int qtdMemoria = listaP[posicao].qtdMemoria;
+    int moldurasDisponiveis = (((qtdMemoria / tamanhoPagina) * percentualAlocacao) / 100);
+    if (moldurasDisponiveis > moldurasTotais){
+        moldurasDisponiveis = moldurasTotais;
+    }
+    // Caso nao esteja na memoria, o processo sera adicionado
+    printf("\nSequencia de acessos a memoria: ");
     for(int i = listaP[posicao].estadoSequencia; i < (listaP[posicao].estadoSequencia + acessosNaMemoria); i++){
-        if(listaP[posicao].sequencia[i] != 0){
-            printf("%d ",listaP[posicao].sequencia[i]);
+        int page = listaP[posicao].sequencia[i];
+        if(page != -1 && pageInMemory(id,page)){
+            printf("%d ",page);
+        } 
+        else if(page != -1 && page!= 0 && !pageInMemory(id,page)){ // Pagina nao esta na memoria
+            printf("\nPagina %d nao esta na memoria\n",page);
+            if(!processInMemory(id)){
+                if (freePosition() != -1){
+                    int posicaoAlocada = addPageIntoMemory(id,page);
+                    listaP[posicao].moldurasUsadas++;
+                    print_primary_memory();
+                }else{
+                    printf("Não é possível armazenar Memoria cheia\n");
+                }
+            }
+            else{ //Processo ja esta na memoria
+                if(listaP[posicao].moldurasUsadas < moldurasDisponiveis && freePosition() != -1){// Aloca em um novo espaco
+                    int posicaoAlocada = addPageIntoMemory(id,page);
+                    listaP[posicao].moldurasUsadas++;
+                }
+                else{  // Memoria cheia e precisa de troca de pagina
+                    if (strcmp(politicaDeMemoria, "local") == 0) {
+                        if(!processInMemory(id) && freePosition() == -1){
+                            printf("Não é possível armazenar\n");
+                        }else{
+                            politicaLocal(id,page);
+                            listaP[posicao].trocasDePaginas++;
+                        }
+                    }else{
+                        if(listaP[posicao].moldurasUsadas >= moldurasDisponiveis){ //se torna local
+                            politicaLocal(id,page); //Deve SER LOCAL AGORA
+                            listaP[posicao].trocasDePaginas++;
+                        }else{ 
+                            politicaGlobal(id,page,posicao);
+                            listaP[posicao].trocasDePaginas++;
+                        }
+                    }
+                }
+                print_primary_memory();
+            }
         }
     }
     listaP[posicao].estadoSequencia += acessosNaMemoria;
     printf("\n");
-    // TUDO CERTO ATE AQUI
 }
 
 //------------------------------------------- LEITURA DO ARQUIVO DE ENTRADA E MANIPULACAO --------------------------------------------------------------------------------------------
@@ -218,6 +330,7 @@ int read_process(const char *nome_arquivo, DadosProcessos *listaP) {
 
         if (controlador == 0) {
             // Ler as informações de configuração
+            //Variaveis globais
             strcpy(algDeEscalonamento, strtok(line, "|"));
             clockCPU = atoi(strtok(NULL, "|"));
             strcpy(politicaDeMemoria, strtok(NULL, "|"));
@@ -225,13 +338,15 @@ int read_process(const char *nome_arquivo, DadosProcessos *listaP) {
             tamanhoPagina = atoi(strtok(NULL, "|"));
             percentualAlocacao = atoi(strtok(NULL, "|"));
             acessoPorCiclo = atoi(strtok(NULL, "|"));
-
+            
             acessosNaMemoria = clockCPU * acessoPorCiclo;
+            moldurasTotais = tamanhoMemoria / tamanhoPagina;
             controlador++;
 
             int tamanhoUsado = tamanhoMemoria * (percentualAlocacao / 100);
-            int *temp = realloc(primaryMemory,( (tamanhoMemoria) * sizeof(int)));
-            primaryMemory = temp;
+            // Alocar memória para a lista de processos
+            primaryMemory = (Memory *)malloc(moldurasTotais * sizeof(Memory));
+
             printf("Memoria Principal com capacidade de %d bytes\n",tamanhoMemoria);
         } else {
             // Processar informações de cada processo
@@ -242,6 +357,7 @@ int read_process(const char *nome_arquivo, DadosProcessos *listaP) {
             listaP[i].qtdMemoria = atoi(strtok(NULL, "|"));
             listaP[i].estadoSequencia = 0;
             listaP[i].trocasDePaginas = 0;
+            listaP[i].moldurasUsadas = 0;
 
             // Ler e armazenar a sequência
             char *sequencia_str = strtok(NULL, "|");
@@ -326,13 +442,13 @@ void *executando_processos(void* arg){
                 }
                 k++;
             }
-         
+        
             if(listaP[posicao].tempo_execucao <= 0){ //Processo encerrou
 
                 listaP[posicao].prioridade = 0;          
             }
 
-            printf("Id: %d\nTempo de execucao: %d\nPrioridade: %d\nLatencia: %d\nqtdMemoria: %d\n", 
+            printf("\nPROCESSO ID %d NA CPU\nTempo de execucao: %d\nPrioridade: %d\nLatencia: %d\nqtdMemoria: %d\n", 
             listaP[posicao].id, 
             listaP[posicao].tempo_execucao, 
             listaP[posicao].prioridade, 
@@ -340,7 +456,13 @@ void *executando_processos(void* arg){
             listaP[posicao].qtdMemoria);
 
             // Aplicacao do algoritmo de gerenciamento de memoria FIFO
-            FIFO(listaP, posicao, tamanhoMemoria);
+            FIFO(listaP, posicao);
+
+            if (listaP[posicao].prioridade == 0){
+                // libera_memoria(listaP[posicao].id);
+                printf("Trocas no processo %d : %d \n",listaP[posicao].id, listaP[posicao].trocasDePaginas);
+                trocasDePaginas += listaP[posicao].trocasDePaginas;
+            }
 
             pthread_mutex_unlock(&mutex_prioridade); 
 
@@ -352,6 +474,7 @@ void *executando_processos(void* arg){
                 //printf("Thread executar encerrou \n");
                 break;
             }
+            printf("Trocas total de paginas: %d \n",trocasDePaginas);
             printf("Todos os processos foram executados. Deseja encerrar? S \n");
             sleep(3);
         }
@@ -425,8 +548,90 @@ void *recebe_novos_processos(void* arg){
         pthread_mutex_unlock(&mutex_prioridade);
     }
 }
-        
 
+// Função para ler o arquivo e preencher os valores dos algoritmos
+void lerArquivoEAtualizar(const char *algoritmo_atual, int trocas_pagina_atual) {
+    FILE *arquivo = fopen("resultados.txt", "r+");
+    char linha[MAX_LINE_LENGTH];
+    int otimo = -1, fifo = -1, nuf = -1, mru = -1;
+    char *token;
+
+    if (arquivo == NULL) {
+        printf("Erro ao abrir o arquivo.\n");
+        return;
+    }
+
+    // Ler a linha do arquivo que contém os resultados
+    if (fgets(linha, MAX_LINE_LENGTH, arquivo) != NULL) {
+        // Quebrar a linha em tokens para identificar os valores de cada algoritmo
+        token = strtok(linha, "|");
+
+        while (token != NULL) {
+            if (strstr(token, "OTIMO:") != NULL) {
+                sscanf(token, "OTIMO: %d", &otimo);
+            } else if (strstr(token, "FIFO:") != NULL) {
+                sscanf(token, "FIFO: %d", &fifo);
+            } else if (strstr(token, "NUF:") != NULL) {
+                sscanf(token, "NUF: %d", &nuf);
+            } else if (strstr(token, "MRU:") != NULL) {
+                sscanf(token, "MRU: %d", &mru);
+            }
+            token = strtok(NULL, "|");
+        }
+
+        // Atualizar o valor do algoritmo atual, sem modificar os outros
+        if (strcmp(algoritmo_atual, "FIFO") == 0) {
+            fifo = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "NUF") == 0) {
+            nuf = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "MRU") == 0) {
+            mru = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "OTIMO") == 0) {
+            otimo = trocas_pagina_atual;
+        }
+    }
+
+    // Reescrever os valores atualizados na primeira linha do arquivo
+    rewind(arquivo);
+    fprintf(arquivo, "OTIMO: %d |FIFO: %d |NUF: %d |MRU: %d\n", 
+            otimo != -1 ? otimo : -1, 
+            fifo != -1 ? fifo : -1, 
+            nuf != -1 ? nuf : -1, 
+            mru != -1 ? mru : -1);
+
+    // Comparar os valores para encontrar o algoritmo mais próximo de OTIMO
+    int dif_fifo = (fifo != -1) ? abs(fifo - otimo) : -1;
+    int dif_nuf = (nuf != -1) ? abs(nuf - otimo) : -1;
+    int dif_mru = (mru != -1) ? abs(mru - otimo) : -1;
+
+    int menor_diferenca = -1;
+    const char *algoritmo_mais_proximo = NULL;
+
+    // Definir o algoritmo mais próximo e verificar empates
+    if (dif_fifo != -1) {
+        menor_diferenca = dif_fifo;
+        algoritmo_mais_proximo = "FIFO";
+    }
+    if (dif_nuf != -1 && (menor_diferenca == -1 || dif_nuf < menor_diferenca)) {
+        menor_diferenca = dif_nuf;
+        algoritmo_mais_proximo = "NUF";
+    } else if (dif_nuf == menor_diferenca) {
+        algoritmo_mais_proximo = "EMPATE";
+    }
+    if (dif_mru != -1 && (menor_diferenca == -1 || dif_mru < menor_diferenca)) {
+        menor_diferenca = dif_mru;
+        algoritmo_mais_proximo = "MRU";
+    } else if (dif_mru == menor_diferenca && strcmp(algoritmo_mais_proximo, "EMPATE") != 0) {
+        algoritmo_mais_proximo = "EMPATE";
+    }
+
+    // Escrever a segunda linha no arquivo com o resultado
+    fprintf(arquivo, "Algoritmo mais próximo do OTIMO: %s\n", algoritmo_mais_proximo);
+
+    fclose(arquivo);
+
+    printf("Arquivo atualizado com sucesso.\n");
+}
 
 int main() {
     // Alocar memória para a lista de processos
@@ -443,11 +648,14 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    char algoritmo_atual[] = "FIFO";
+
     // Imprime os valores dos processos
     show_process(listaP, numeroProcessos);
 
-    printf("\nAlgoritmo FIFO\n");
     iterador = numeroProcessos;
+
+    initMemory();
 
     pthread_t executando_processo, lendo_novo_processo;
     pthread_mutex_init(&mutex_prioridade, NULL);
@@ -458,10 +666,13 @@ int main() {
     pthread_join(executando_processo, NULL);
     pthread_cancel(lendo_novo_processo);
 
+    // Saida de troca de paginas
+    lerArquivoEAtualizar(algoritmo_atual,trocasDePaginas);
+
     pthread_mutex_destroy(&mutex_prioridade);
 
     free(listaP);
-    free(oldestProcess);
+    // free(oldestProcess);
 
     return 0;
 }
