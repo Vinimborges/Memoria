@@ -4,12 +4,11 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <stdbool.h>
-#include "escalonadorPrioridade.h"
 
 #define TAM_LINHA 500
 #define PROCESSOS 100
 #define TAM_SEQUENCIA 100
-
+#define MAX_LINE_LENGTH 256
 
 // Dados dos processos
 typedef struct{
@@ -20,12 +19,12 @@ typedef struct{
         qtd_memoria,
         sequencia[TAM_SEQUENCIA],
         tamanho_sequencia,
-        pos_ini_memoria,
-        pos_fim_memoria,
-        na_memoria,
+        qtd_paginas_memoria,
+        contando,
         latencia;
 } DadosProcessos;
 
+//Dados das páginas
 typedef struct{
     int numero_pagina,  
         id_processo,   
@@ -38,17 +37,17 @@ pthread_mutex_t mutex_PR;
 char alg_escalonamento[50];
 char politica_memoria[50];
 int clock_cpu, tam_memoria, tam_pagina, percentual_alocacao, acesso_por_ciclo;
-int iterador = 0, tempo_atual = 0, posicao_ocuapada_inicial = 0, posicao_ocupada_final = 0;
-int molduras_memoria = tam_memoria / tam_pagina;
+int iterador = 0, tempo_atual = 0, molduras_usadas = 0, trocas_de_paginas = 0;
+int qtd_processos;
 
 
-
-
-DadosProcessos *lista_processos; // Ponteiro para a lista de processos
-Paginas *paginas_na_memoria;
+int * molduras_memoria; //Ponteiro para a quantidade de molduras que a memória possui.
+DadosProcessos *lista_processos; //Ponteiro para a lista de processos.
+Paginas *paginas_na_memoria; //Ponteiro para uma lista, que armazena as páginas e seus dados.
 
 //------------------------------------------- LEITURA DO ARQUIVO DE ENTRADA E MANIPULACAO --------------------------------------------------------------------------------------------
-// Função para ler os processos do arquivo
+
+//Função para ler os processos do arquivo.
 int recebe_processos(const char *nome_arquivo, DadosProcessos *lista_processos) {
     FILE *file = fopen(nome_arquivo, "r");
 
@@ -78,6 +77,9 @@ int recebe_processos(const char *nome_arquivo, DadosProcessos *lista_processos) 
             lista_processos[i].prioridade = atoi(strtok(NULL, "|"));
             lista_processos[i].qtd_memoria = atoi(strtok(NULL, "|"));
             lista_processos[i].latencia = 0;
+            lista_processos[i].contando = 0;
+            lista_processos[i].qtd_paginas_memoria = 0;
+            
 
             // Ler e armazenar a sequência
             char *sequencia_str = strtok(NULL, "|");
@@ -97,8 +99,9 @@ int recebe_processos(const char *nome_arquivo, DadosProcessos *lista_processos) 
     fclose(file);
     return numero_processos;
 }
-
+//Função para imprimir os processos.
 void imprimir_processos(DadosProcessos *lista_processos, int numeroProcessos) {
+
     for (int j = 0; j < numeroProcessos; j++) {
         printf("\nProcesso: %s\n", lista_processos[j].nome_processo);
         printf("ID: %d\n", lista_processos[j].id);
@@ -112,13 +115,6 @@ void imprimir_processos(DadosProcessos *lista_processos, int numeroProcessos) {
         printf("\n");
     }
 }
-
-void inicializar_pagina(Paginas *pagina) {
-    pagina -> numero_pagina = -1; 
-    pagina -> id_processo = -1;    
-    pagina -> ultimo_acesso = 0;   
-}
-
 //Função para criar um arquivo txt onde estarão armazenados o Id e a Latência de cada processo.
 void criando_arquivo(){
     int i = 0;
@@ -134,139 +130,147 @@ void criando_arquivo(){
     }
 }
 
+//------------------------------------------- LEITURA DO ARQUIVO DE ENTRADA E MANIPULACAO --------------------------------------------------------------------------------------------
+
+//------------------------------------------- GERENCIADOR DE MEMÓRIA E CÓDIGOS ASSOCIADOS -------------------------------------------------------------------------------------------
+
+//Função para inicializar a página.
+void inicializar_pagina(Paginas *pagina) {
+    pagina -> numero_pagina = -1; 
+    pagina -> id_processo = -1;    
+    pagina -> ultimo_acesso = 0;   
+}
+//Função para liberar a memória ocupada pelo um processo que já foi encerrado.
+void libera_memoria(int posicao){
+    for (int i = 0; i < *molduras_memoria; i++){
+        if(lista_processos[posicao].id == paginas_na_memoria[i].id_processo){
+            paginas_na_memoria[i].id_processo = -1;
+            paginas_na_memoria[i].numero_pagina = -1;
+            paginas_na_memoria[i].ultimo_acesso = 0;
+            molduras_usadas--;
+
+        }
+    }
+    molduras_usadas = 0;
+}
+//Função para imprimir as páginas que estão na memória.
+void imprimir_paginas(){
+    for (int i = 0; i < *molduras_memoria; i++){
+        printf("\nid do processo: %d\n", paginas_na_memoria[i].id_processo);
+        printf("numero da pagina: %d\n", paginas_na_memoria[i].numero_pagina);
+        printf("ultimo acesso: %d\n", paginas_na_memoria[i].ultimo_acesso);
+
+    }
+
+}
+//Função que implementa o gerenciador de memória pelo algoritmo do Menos Recentemente Usado (MRU)
 void MRU (int posicao, int clock_cpu){
-    int num_paginas_recebidos = clock_cpu * acesso_por_ciclo;
-    int contador = 0, pos_inicial = 0, pos_final = 0;
-    int qtd_processo_memoria = (lista_processos[posicao].qtd_memoria * 0.75) / tam_pagina;
-    int acesso = 0, menos_acessada;
+    int num_paginas_recebidas = clock_cpu * acesso_por_ciclo;
+    int qtd_paginas_permitida = (lista_processos[posicao].qtd_memoria * 0.75) / tam_pagina;
+    printf("\n%d\n", tempo_atual);
+      
+    if(strcmp(politica_memoria, "local") == 0){ //Aplica o algorimto para o caso local.
+        if(molduras_usadas <= *molduras_memoria){ //Verifica se tem espaço na memória.
+        
+            for (int i = 0; i < num_paginas_recebidas; i++){ //Acha, na memória, as posições onde as páginas do processo vão ser alocadas.
+                int flag_subs = 0, acesso = 10000, menos_acessada = -1;
+                for (int j = 0; j < *molduras_memoria; j++){
+                    
+                    if(paginas_na_memoria[j].id_processo == -1 && lista_processos[posicao].qtd_paginas_memoria < qtd_paginas_permitida){ //Verifica se a posição está vazia e se o processo pode adicionar mais páginas na memória 
 
-    if(strcmp(politica_memoria, "local") == 0){
-        if(posicao_ocupada_final + num_paginas_recebidos <= molduras_memoria - 1 && lista_processos[posicao].na_memoria == 0){ //Verifica se tem espaço contigo na memória e se o processo não está na memória.
-            
-            lista_processos[posicao].na_memoria = 1; // Flag para indicar que o processo está na memória.
-            
-            for (int i = posicao_ocupada_final; i < molduras_memoria; i++){ //Acha, na memória, as posições onde as páginas do processo vão ser alocadas.
-                if (paginas_na_memoria[i].numero_pagina == -1 ){
-                    contador++;
-                    if (contador == 1){
-                        pos_inicial = i;
+                        paginas_na_memoria[j].id_processo = lista_processos[posicao].id;
+                        paginas_na_memoria[j].numero_pagina = lista_processos[posicao].sequencia[i + lista_processos[posicao].contando] ;
+                        paginas_na_memoria[j].ultimo_acesso = tempo_atual + (i / 2);
+                        lista_processos[posicao].qtd_paginas_memoria++;
+                        flag_subs = 0;
+                        molduras_usadas++;
+                        break;
+                       
+                    }else if (lista_processos[posicao].id == paginas_na_memoria[j].id_processo && lista_processos[posicao].sequencia[i + lista_processos[posicao].contando] == paginas_na_memoria[j].numero_pagina){ //Atualiza a página, caso ela já esteja na memória.
+                        paginas_na_memoria[j].ultimo_acesso = tempo_atual + (i / 2);
+                        flag_subs = 0;
+                        break;
+                        
+                    }else if (paginas_na_memoria[j].ultimo_acesso <= acesso && paginas_na_memoria[j].id_processo == lista_processos[posicao].id){ //Caso nem uma das outras opções ocorra, o programa procura pela a página menos recentemente usada para ser substituida.
+                        acesso = paginas_na_memoria[j].ultimo_acesso;
+                        menos_acessada = j;
+                        flag_subs = 1;  
                     }
 
-                } else{
-                    contador = 0;
                 }
-
-                if (contador == qtd_processo_memoria){
-                    pos_final = contador;
-                }
-            }
-
-            lista_processos[posicao].pos_ini_memoria = pos_inicial;
-            lista_processos[posicao].pos_fim_memoria = pos_final;
-
-            for (int j = 0; j < num_paginas_recebidos; j++){ //Pegando todos os valores que devem ser pegos durante o clock.
-                int flag_subs = 0;
-
-                for (int k = pos_inicial; k < pos_final; k++){ //Verificando se a página está na memória. Caso sim, só substitui o valor de último acesso. Caso não, salva o índice de quem teve mais tempo sem ser acessado. 
-                    if(paginas_na_memoria[k].id_processo == -1){
-                        paginas_na_memoria[k].id_processo = lista_processos[posicao].id;
-                        paginas_na_memoria[k].numero_pagina = lista_processos[posicao].sequencia[j] ;
-                        paginas_na_memoria[k].ultimo_acesso = tempo_atual + (j / 2);
-                        flag_subs = 0;
-
-                    }else if (lista_processos[posicao].id == paginas_na_memoria[k].id_processo){
-                        paginas_na_memoria[k].ultimo_acesso = tempo_atual + (j / 2);
-                        flag_subs = 0;
-
-                    }else if (paginas_na_memoria[k].ultimo_acesso >= acesso){
-                        acesso = paginas_na_memoria[k].ultimo_acesso;
-                        menos_acessada = k;
-                        flag_subs = 1;
-                    }
-                }
-            
+                
                 if (flag_subs == 1){ //Troca a página que ficou mais tempo sem ser acessada.
                     paginas_na_memoria[menos_acessada].id_processo = lista_processos[posicao].id;
-                    paginas_na_memoria[menos_acessada].numero_pagina = lista_processos[posicao].sequencia[j] ;
-                    paginas_na_memoria[menos_acessada].ultimo_acesso = tempo_atual + (j / 2);
+                    paginas_na_memoria[menos_acessada].numero_pagina = lista_processos[posicao].sequencia[i + lista_processos[posicao].contando] ;
+                    paginas_na_memoria[menos_acessada].ultimo_acesso = tempo_atual + (i / 2);
+                    trocas_de_paginas++;
                     
                 }
+          
             }
 
-            ocupacao_memoria();
+            lista_processos[posicao].contando += num_paginas_recebidas;  
+            imprimir_paginas();
+        }
 
-            
-        }else if(lista_processos[posicao].na_memoria == 1){ //Verifica se o processo está na memória.
+    } else{ //Aplica o algoritmo para o caso global.
 
-                for (int j = 0; j < num_paginas_recebidos; j++){ //Pegando todos os valores que devem ser pegos durante o clock.
-                    int flag_subs = 0;
-
-                    for (int k = lista_processos[posicao].pos_ini_memoria; k < lista_processos[posicao].pos_fim_memoria; k++){ //Verificando se a página está na memória. Caso sim, só substitui o valor de último acesso. Caso não, salva o índice de quem teve mais tempo sem ser acessado. 
-                        if(paginas_na_memoria[k].id_processo == -1){
-                            paginas_na_memoria[k].id_processo = lista_processos[posicao].id;
-                            paginas_na_memoria[k].numero_pagina = lista_processos[posicao].sequencia[j] ;
-                            paginas_na_memoria[k].ultimo_acesso = tempo_atual + (j / 2);
-                            flag_subs = 0;
-
-                        }else if (lista_processos[posicao].id == paginas_na_memoria[k].id_processo){
-                            paginas_na_memoria[k].ultimo_acesso = tempo_atual + (j / 2);
-                            flag_subs = 0;
-
-                        }else if (paginas_na_memoria[k].ultimo_acesso >= acesso){
-                            acesso = paginas_na_memoria[k].ultimo_acesso;
-                            menos_acessada = k;
-                            flag_subs = 1;
-                        }
-                    }
+        
+        for (int i = 0; i < num_paginas_recebidas; i++){ //Acha, na memória, as posições onde as páginas do processo vão ser alocadas.
+            int flag_subs = 0, acesso = 10000, menos_acessada = -1;
+            for (int j = 0; j < *molduras_memoria; j++){
                 
-                    if (flag_subs == 1){ //Troca a página que ficou mais tempo sem ser acessada.
-                        paginas_na_memoria[menos_acessada].id_processo = lista_processos[posicao].id;
-                        paginas_na_memoria[menos_acessada].numero_pagina = lista_processos[posicao].sequencia[j] ;
-                        paginas_na_memoria[menos_acessada].ultimo_acesso = tempo_atual + (j / 2);
-                        
-                    }
+                if(paginas_na_memoria[j].id_processo == -1 && lista_processos[posicao].qtd_paginas_memoria < qtd_paginas_permitida){ //Verifica se a posição está vazia e se o processo pode adicionar mais páginas na memória 
+
+                    paginas_na_memoria[j].id_processo = lista_processos[posicao].id;
+                    paginas_na_memoria[j].numero_pagina = lista_processos[posicao].sequencia[i + lista_processos[posicao].contando] ;
+                    paginas_na_memoria[j].ultimo_acesso = tempo_atual + (i / 2);
+                    lista_processos[posicao].qtd_paginas_memoria++;
+                    flag_subs = 0;
+                    molduras_usadas++;
+                    break;
+                    
+                }else if (lista_processos[posicao].id == paginas_na_memoria[j].id_processo && lista_processos[posicao].sequencia[i + lista_processos[posicao].contando] == paginas_na_memoria[j].numero_pagina){ //Atualiza a página, caso ela já esteja na memória.
+                    paginas_na_memoria[j].ultimo_acesso = tempo_atual + (i / 2);
+                    flag_subs = 0;
+                    break;
+                    
+                }else if (paginas_na_memoria[j].ultimo_acesso <= acesso && (lista_processos[posicao].qtd_paginas_memoria < qtd_paginas_permitida || paginas_na_memoria[j].id_processo == lista_processos[posicao].id)){ //Caso nem uma das outras opções ocorra, o programa procura pela a página menos recentemente usada para ser substituida.
+                    acesso = paginas_na_memoria[j].ultimo_acesso;
+                    menos_acessada = j;
+                    flag_subs = 1;  
                 }
 
+            }
+
+            if (flag_subs == 1){ //Troca a página que ficou mais tempo sem ser acessada.
+                int id_processo_trocado = paginas_na_memoria[menos_acessada].id_processo;
+
+                for(int k = 0; k < qtd_processos; k++){
+
+                    if(lista_processos[k].id == id_processo_trocado){
+                        lista_processos[k].qtd_paginas_memoria--;
+                    }
 
 
-        }else{
-            printf("\nSem espaço na memória\n");
-
+                }
+                lista_processos[posicao].qtd_paginas_memoria++;
+                paginas_na_memoria[menos_acessada].id_processo = lista_processos[posicao].id;
+                paginas_na_memoria[menos_acessada].numero_pagina = lista_processos[posicao].sequencia[i + lista_processos[posicao].contando] ;
+                paginas_na_memoria[menos_acessada].ultimo_acesso = tempo_atual + (i / 2);
+                trocas_de_paginas++;
+                
+            }
+          
         }
-    } else{
 
-
-
-
+        lista_processos[posicao].contando += num_paginas_recebidas;  
+        imprimir_paginas();
     }
 
 }
 
-void ocupacao_memoria(){
-    int menor = 0, maior = 0, flag_menor = 0;
-    for (int i = 0; i < molduras_memoria; i++){
-        if (paginas_na_memoria[i].id_processo != -1 && flag_menor == 0){
-            menor = i;
-            flag_menor = 1;
-
-        }
-        if (paginas_na_memoria[i].id_processo != -1 && i >= maior){
-            maior = i;
-        }
-
-    }
-
-    posicao_ocuapada_inicial = menor;
-    posicao_ocupada_final = maior;
-
-}
-
-void libera_memoria(int posicao){
-    for (int i = lista_processos[posicao].pos_ini_memoria; i < lista_processos[posicao].pos_fim_memoria; i++){
-        paginas_na_memoria[i].id_processo = -1;
-    }
-    ocupacao_memoria();
-}
+//------------------------------------------- GERENCIADOR DE MEMÓRIA E CÓDIGOS ASSOCIADOS -------------------------------------------------------------------------------------------
 
 //Função que recebe a lista de processos e executa-os. Durante o procedimento de executar um novo processo ele "trava" a função recebe_novos_processos usando um mutex.
 void *executando_processos(void* arg){
@@ -304,24 +308,25 @@ void *executando_processos(void* arg){
             }
          
             if(lista_processos[posicao].tempo_execucao <= 0){ //Processo encerrou
-
                 lista_processos[posicao].prioridade = 0;          
             }
 
             MRU(posicao, clock_cpu);
-            tempo_atual = clock_cpu;
+            tempo_atual += clock_cpu;
 
             if (lista_processos[posicao].prioridade == 0){
                 libera_memoria(posicao);
+                tempo_atual = 0;
             }
 
             pthread_mutex_unlock(&mutex_PR); 
 
             printf("\n");
             sleep(1);
+            printf("\nNúmero de troca de páginas: %d\n", trocas_de_paginas);
         }
         else{
-            if ( listaP[iterador-1].id == -1 ){
+            if ( lista_processos[iterador-1].id == -1 ){
                 //printf("Thread executar encerrou \n");
                 break;
             }
@@ -356,7 +361,7 @@ void *recebe_novos_processos(void* arg){
         int result = sscanf(linha, "%[^|]|%d|%d|%d|%d|%m[^\n]", nome, &id, &tempo, &prioridade, &qtd_memoria, &sequencia_str); 
         
         if (result == 6) {  // Certifique-se de que 6 campos foram lidos corretamente
-            strcpy(listaP[iterador - 1].nome_processo, nome);
+            strcpy(lista_processos[iterador - 1].nome_processo, nome);
             lista_processos[iterador - 1].id = id;
             lista_processos[iterador - 1].tempo_execucao = tempo;
             lista_processos[iterador - 1].prioridade = prioridade;
@@ -398,25 +403,119 @@ void *recebe_novos_processos(void* arg){
         pthread_mutex_unlock(&mutex_PR);
     }
 }
-        
 
+// Função para ler o arquivo e preencher os valores dos algoritmos
+void lerArquivoEAtualizar(const char *algoritmo_atual, int trocas_pagina_atual) {
+    FILE *arquivo = fopen("resultados.txt", "r+");
+    char linha[MAX_LINE_LENGTH];
+    int otimo = -1, fifo = -1, nuf = -1, mru = -1;
+    char *token;
+
+    if (arquivo == NULL) {
+        printf("Erro ao abrir o arquivo.\n");
+        return;
+    }
+
+    // Ler a linha do arquivo que contém os resultados
+    if (fgets(linha, MAX_LINE_LENGTH, arquivo) != NULL) {
+        // Quebrar a linha em tokens para identificar os valores de cada algoritmo
+        token = strtok(linha, "|");
+
+        while (token != NULL) {
+            if (strstr(token, "OTIMO:") != NULL) {
+                sscanf(token, "OTIMO: %d", &otimo);
+            } else if (strstr(token, "FIFO:") != NULL) {
+                sscanf(token, "FIFO: %d", &fifo);
+            } else if (strstr(token, "NUF:") != NULL) {
+                sscanf(token, "NUF: %d", &nuf);
+            } else if (strstr(token, "MRU:") != NULL) {
+                sscanf(token, "MRU: %d", &mru);
+            }
+            token = strtok(NULL, "|");
+        }
+
+        // Atualizar o valor do algoritmo atual, sem modificar os outros
+        if (strcmp(algoritmo_atual, "FIFO") == 0) {
+            fifo = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "NUF") == 0) {
+            nuf = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "MRU") == 0) {
+            mru = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "OTIMO") == 0) {
+            otimo = trocas_pagina_atual;
+        }
+    }
+
+    // Reescrever os valores atualizados na primeira linha do arquivo
+    rewind(arquivo);
+    fprintf(arquivo, "OTIMO: %d |FIFO: %d |NUF: %d |MRU: %d\n", 
+            otimo != -1 ? otimo : -1, 
+            fifo != -1 ? fifo : -1, 
+            nuf != -1 ? nuf : -1, 
+            mru != -1 ? mru : -1);
+
+    // Comparar os valores para encontrar o algoritmo mais próximo de OTIMO
+    int dif_fifo = (fifo != -1) ? abs(fifo - otimo) : -1;
+    int dif_nuf = (nuf != -1) ? abs(nuf - otimo) : -1;
+    int dif_mru = (mru != -1) ? abs(mru - otimo) : -1;
+
+    int menor_diferenca = -1;
+    const char *algoritmo_mais_proximo = NULL;
+
+    // Definir o algoritmo mais próximo e verificar empates
+    if (dif_fifo != -1) {
+        menor_diferenca = dif_fifo;
+        algoritmo_mais_proximo = "FIFO";
+    }
+    if (dif_nuf != -1 && (menor_diferenca == -1 || dif_nuf < menor_diferenca)) {
+        menor_diferenca = dif_nuf;
+        algoritmo_mais_proximo = "NUF";
+    } else if (dif_nuf == menor_diferenca) {
+        algoritmo_mais_proximo = "EMPATE";
+    }
+    if (dif_mru != -1 && (menor_diferenca == -1 || dif_mru < menor_diferenca)) {
+        menor_diferenca = dif_mru;
+        algoritmo_mais_proximo = "MRU";
+    } else if (dif_mru == menor_diferenca && strcmp(algoritmo_mais_proximo, "EMPATE") != 0) {
+        algoritmo_mais_proximo = "EMPATE";
+    }
+
+    // Escrever a segunda linha no arquivo com o resultado
+    fprintf(arquivo, "Algoritmo mais próximo do OTIMO: %s\n", algoritmo_mais_proximo);
+
+    fclose(arquivo);
+
+    printf("Arquivo atualizado com sucesso.\n");
+}
+
+//Função Main que inicializa o programa.
 int main() {
     // Alocar memória para a lista de processos
     lista_processos = (DadosProcessos *)malloc(PROCESSOS * sizeof(DadosProcessos));
-    paginas_na_memoria =  (Paginas *)malloc(molduras * sizeof(Paginas));
+    molduras_memoria = (int *)malloc(sizeof(int));
 
     // Chamar a função para ler processos do arquivo
     int numero_processos = recebe_processos("entradaMemoria.txt", lista_processos);
+    qtd_processos = numero_processos;
+
+    *molduras_memoria = tam_memoria / tam_pagina;
+    paginas_na_memoria =  (Paginas *)malloc(*molduras_memoria * sizeof(Paginas));
+    
+
 
     // Imprime os valores dos processos
     imprimir_processos(lista_processos, numero_processos);
 
+    char algoritmo_atual[] = "MRU";
+
     printf("\nAlgoritmo MRU\n");
     iterador = numero_processos;
 
-    for (int i = 0; i < molduras_memoria; i++) {
+    for (int i = 0; i < *molduras_memoria; i++) {
         inicializar_pagina(&paginas_na_memoria[i]);
-    }
+    }   
+
+ 
 
     pthread_t executando_processo, lendo_novo_processo;
     pthread_mutex_init(&mutex_PR, NULL);
@@ -427,10 +526,16 @@ int main() {
     pthread_join(executando_processo, NULL);
     pthread_cancel(lendo_novo_processo);
 
+     // Saida de troca de paginas
+    lerArquivoEAtualizar(algoritmo_atual,trocas_de_paginas);
+
     pthread_mutex_destroy(&mutex_PR);
 
     free(lista_processos);
+    free(paginas_na_memoria);
+    free(molduras_memoria);
 
+   
 
     return 0;
 }
