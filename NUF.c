@@ -376,6 +376,7 @@ void *executando_processos(void* arg){
             sleep(3);
         }
     }
+
 }
 
 //Função que recebe novos processos e armazena numa lista. Durante o procedimento de adicionar um novo processo ele "trava" a função executando_processos usando um mutex.
@@ -447,7 +448,91 @@ void *recebe_novos_processos(void* arg){
         pthread_mutex_unlock(&mutex_prioridade);
     }
 }
-        
+
+// Função para ler o arquivo e preencher os valores dos algoritmos
+void lerArquivoEAtualizar(const char *algoritmo_atual, int trocas_pagina_atual) {
+    FILE *arquivo = fopen("resultados.txt", "r+");
+    char linha[MAX_LINE_LENGTH];
+    int otimo = -1, fifo = -1, nuf = -1, mru = -1;
+    char *token;
+
+    if (arquivo == NULL) {
+        printf("Erro ao abrir o arquivo.\n");
+        return;
+    }
+
+    // Ler a linha do arquivo que contém os resultados
+    if (fgets(linha, MAX_LINE_LENGTH, arquivo) != NULL) {
+        // Quebrar a linha em tokens para identificar os valores de cada algoritmo
+        token = strtok(linha, "|");
+
+        while (token != NULL) {
+            if (strstr(token, "OTIMO:") != NULL) {
+                sscanf(token, "OTIMO: %d", &otimo);
+            } else if (strstr(token, "FIFO:") != NULL) {
+                sscanf(token, "FIFO: %d", &fifo);
+            } else if (strstr(token, "NUF:") != NULL) {
+                sscanf(token, "NUF: %d", &nuf);
+            } else if (strstr(token, "MRU:") != NULL) {
+                sscanf(token, "MRU: %d", &mru);
+            }
+            token = strtok(NULL, "|");
+        }
+
+        // Atualizar o valor do algoritmo atual, sem modificar os outros
+        if (strcmp(algoritmo_atual, "FIFO") == 0) {
+            fifo = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "NUF") == 0) {
+            nuf = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "MRU") == 0) {
+            mru = trocas_pagina_atual;
+        } else if (strcmp(algoritmo_atual, "OTIMO") == 0) {
+            otimo = trocas_pagina_atual;
+        }
+    }
+
+    // Reescrever os valores atualizados na primeira linha do arquivo
+    rewind(arquivo);
+    fprintf(arquivo, "OTIMO: %d |FIFO: %d |NUF: %d |MRU: %d\n", 
+            otimo != -1 ? otimo : -1, 
+            fifo != -1 ? fifo : -1, 
+            nuf != -1 ? nuf : -1, 
+            mru != -1 ? mru : -1);
+
+    // Comparar os valores para encontrar o algoritmo mais próximo de OTIMO
+    int dif_fifo = (fifo != -1) ? abs(fifo - otimo) : -1;
+    int dif_nuf = (nuf != -1) ? abs(nuf - otimo) : -1;
+    int dif_mru = (mru != -1) ? abs(mru - otimo) : -1;
+
+    int menor_diferenca = -1;
+    const char *algoritmo_mais_proximo = NULL;
+
+    // Definir o algoritmo mais próximo e verificar empates
+    if (dif_fifo != -1) {
+        menor_diferenca = dif_fifo;
+        algoritmo_mais_proximo = "FIFO";
+    }
+    if (dif_nuf != -1 && (menor_diferenca == -1 || dif_nuf < menor_diferenca)) {
+        menor_diferenca = dif_nuf;
+        algoritmo_mais_proximo = "NUF";
+    } else if (dif_nuf == menor_diferenca) {
+        algoritmo_mais_proximo = "EMPATE";
+    }
+    if (dif_mru != -1 && (menor_diferenca == -1 || dif_mru < menor_diferenca)) {
+        menor_diferenca = dif_mru;
+        algoritmo_mais_proximo = "MRU";
+    } else if (dif_mru == menor_diferenca && strcmp(algoritmo_mais_proximo, "EMPATE") != 0) {
+        algoritmo_mais_proximo = "EMPATE";
+    }
+
+    // Escrever a segunda linha no arquivo com o resultado
+    fprintf(arquivo, "Algoritmo mais próximo do OTIMO: %s\n", algoritmo_mais_proximo);
+
+    fclose(arquivo);
+
+    printf("Arquivo atualizado com sucesso.\n");
+}
+
 
 
 int main() {
@@ -457,13 +542,14 @@ int main() {
         perror("Erro ao alocar memória para a lista de processos");
         return EXIT_FAILURE;
     }
-
     // Chamar a função para ler processos do arquivo
     int numeroProcessos = read_process("entradaMemoria.txt", listaP);
     if (numeroProcessos == -1) {
         free(listaP);
         return EXIT_FAILURE;
     }
+
+    char algoritmo_atual[] = "NUF";
 
     // Imprime os valores dos processos
     show_process(listaP, numeroProcessos);
@@ -479,6 +565,8 @@ int main() {
 
     pthread_join(executando_processo, NULL);
     pthread_cancel(lendo_novo_processo);
+
+    lerArquivoEAtualizar(algoritmo_atual, trocasPaginas);
 
     pthread_mutex_destroy(&mutex_prioridade);
 
