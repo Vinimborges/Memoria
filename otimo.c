@@ -234,10 +234,7 @@ int read_process(const char *nome_arquivo, DadosProcessos *listaP) {
             acessosNaMemoria = clockCPU * acessoPorCiclo;
             controlador++;
 
-            // int tamanhoUsado = tamanhoMemoria * (percentualAlocacao / 100);
-            // int *temp = realloc(primaryMemory,( (tamanhoMemoria) * sizeof(int)));
-            // primaryMemory = temp;
-            memorySize = 8;
+            memorySize = tamanhoMemoria / tamanhoPagina;
             memory = malloc(memorySize * sizeof(st_memory));
 
             printf("Memoria Principal com capacidade de %d bytes\n",tamanhoMemoria);
@@ -254,16 +251,6 @@ int read_process(const char *nome_arquivo, DadosProcessos *listaP) {
             char *page_sequence_str = strtok(NULL, "|");
 
             read_sequence(&listaP[i], page_sequence_str);
-
-            // Ler e armazenar a sequência
-            // char *sequencia_str = strtok(NULL, "|");
-            // char *token = strtok(sequencia_str, " ");
-      
-
-            // while (token != NULL) {
-            //     listaP[i].pageSequence[listaP[i].pageAmount++] = atoi(token);
-            //     token = strtok(NULL, " ");
-            // }
 
             i++;
             lineCount++;
@@ -362,14 +349,6 @@ void *executando_processos(void* arg){
 
                 listaP[posicao].prioridade = 0;          
             }
-
-            // printf("Id: %d\nTempo de execucao: %d\nPrioridade: %d\nLatencia: %d\nqtdMemoria: %d\nCapacidade: %d\n", 
-            // listaP[posicao].id, 
-            // listaP[posicao].tempo_execucao, 
-            // listaP[posicao].prioridade, 
-            // listaP[posicao].latencia,
-            // listaP[posicao].qtdMemoria,
-            // listaP[posicao].capacity);
             
             pthread_mutex_unlock(&mutex_prioridade); 
 
@@ -425,16 +404,6 @@ void *recebe_novos_processos(void* arg){
             char *page_sequence_str = strtok(NULL, "|");
 
             read_sequence(&listaP[iterador - 1], page_sequence_str);
-
-            // Lê a sequência de acessos se existir
-            // if (sequencia_str != NULL) {
-            //     char *token = strtok(sequencia_str, " ");
-            //     while (token != NULL) {
-            //         listaP[iterador - 1].pageSequence[listaP[iterador - 1].pageAmount++] = atoi(token);
-            //         token = strtok(NULL, " ");
-            //     }
-            //     free(sequencia_str);  // Libera a memória alocada pelo sscanf
-            // }
 
             // Exibe o processo adicionado
             printf("Novo processo adicionado: %s\n", listaP[iterador - 1].nome_processo);
