@@ -29,11 +29,11 @@ typedef struct {
         vezesAcessado;
 } DadosProcessos;
 
-typedef struct {
+typedef struct { // Estrutura que representa cada espaço da memória
     int process,
         page,
         frequency;
-} Memory;
+} Memory; 
 
 char algDeEscalonamento[50];
 char politicaDeMemoria[50];
@@ -57,35 +57,50 @@ DadosProcessos *listaP = NULL; // Ponteiro para a lista de processos
 
 
 //------------------------------------------- Algortimo de MEMORIA NUF --------------------------------------------------------------------------------------------
-int findGlobalPageToReplace(Memory *pagesInMemory) {
+int findGlobalPageToReplace(Memory *pagesInMemory, int posicao, int idProcesso) { // Função de troca de páginas no escopo Global
     int frequency = INT_MAX;
     int page = INT_MAX;
     int id = INT_MAX;
     int position = -1;
-
-    for (int i = 0; i < tamanhoMemoria / tamanhoPagina; i++) {
-        if (pagesInMemory[i].process != -1) {  // Considera apenas páginas ocupadas
-            if (pagesInMemory[i].frequency < frequency || 
-               (pagesInMemory[i].frequency == frequency && pagesInMemory[i].process < id) || 
-               (pagesInMemory[i].frequency == frequency && pagesInMemory[i].process == id && pagesInMemory[i].page < page)) {
-                frequency = pagesInMemory[i].frequency;
-                page = pagesInMemory[i].page;
-                id = pagesInMemory[i].process;
-                position = i;
+    if(listaP[posicao].espacoMemoria > 0){// Verifica se o processo ainda tem direito de espaço na memória
+        for (int i = 0; i < tamanhoMemoria / tamanhoPagina; i++) { // Se tiver, ele procura páginas nos outros processos
+            if (pagesInMemory[i].process != -1 && pagesInMemory[i].process != idProcesso){ 
+                // Verifica se o processo existe e se é diferente do processo atual
+                if (pagesInMemory[i].frequency < frequency || 
+                (pagesInMemory[i].frequency == frequency && pagesInMemory[i].process < id) || 
+                (pagesInMemory[i].frequency == frequency && pagesInMemory[i].process == id && pagesInMemory[i].page < page)) {
+                    // Verifica se a frequência é menor que a frequência atual e se for verifica qual processo tem menor id
+                    frequency = pagesInMemory[i].frequency;
+                    page = pagesInMemory[i].page;
+                    id = pagesInMemory[i].process;
+                    position = i;
+                }
             }
         }
+    }else{// Se não tiver, ele troca apenas dentro do processo
+        for(int i = 0; i < tamanhoMemoria/tamanhoPagina; i++){
+            if(pagesInMemory[i].process == idProcesso) {
+                if (pagesInMemory[i].frequency < frequency || (pagesInMemory[i].frequency == frequency && pagesInMemory[i].page < page)) {
+                    frequency = pagesInMemory[i].frequency;
+                    page = pagesInMemory[i].page;
+                    position = i;
+                    }
+                }
+        }
     }
+
     
-    return position; // Retorna a posição da página menos usada globalmente
+    return position; 
 }
-int findPageToReplace(Memory *pagesInMemory, int idProcesso){ //Função que encontra página para substituir
+
+int findPageToReplace(Memory *pagesInMemory, int idProcesso){ // Função de troca de página no escopo Local
     int frequency = INT_MAX;
     int page = INT_MAX;
     int position = -1;
     for(int i = 0; i < tamanhoMemoria/tamanhoPagina; i++){
-
         if(pagesInMemory[i].process == idProcesso) {
             if (pagesInMemory[i].frequency < frequency || (pagesInMemory[i].frequency == frequency && pagesInMemory[i].page < page)) {
+                // Verifica se a frequência é menor que a frequência e caso seja igual, pega a página de menor id
                 frequency = pagesInMemory[i].frequency;
                 page = pagesInMemory[i].page;
                 position = i;
@@ -93,32 +108,22 @@ int findPageToReplace(Memory *pagesInMemory, int idProcesso){ //Função que enc
         }
     }
 
-    if (position == -1) {
-        // Escolher uma posição alternativa para a troca, caso nenhuma posição do processo seja encontrada
-        for(int i = 0; i < tamanhoMemoria / tamanhoPagina; i++) {
-            if (pagesInMemory[i].process == -1) {
-                return i;
-            }
-        }
-    }
 
     return position;
 }
 
-// processo4|4|22|90|4096|1 2 2 2 8 8 8 4 4 7 7 7 2 1 3 2 1 2 2 3 4 3 2 2 1 2 2 2 3 4 3 4 4 4 2 3 2 1 3 2 1 2 2 3 4 3 2 2
 
-void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
-    int paginas = listaP[posicao].qtdMemoria / tamanhoPagina * 75 / 100;
+void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){ // Função do algoritmo NUF 
 
-    for(int i = 0; i < clockCPU * acessoPorCiclo; i++) {
+    for(int i = 0; i < clockCPU * acessoPorCiclo; i++) { // Loop que vai acessar x páginas
         int k = i;
-        if (listaP[posicao].sequencia[i] == 0) {
+        if (listaP[posicao].sequencia[i] == 0) {// Vai para a página que ainda não foi acessada na sequência de acessos
             k += (clockCPU * acessoPorCiclo) * listaP[posicao].vezesAcessado;
         }
 
         int posicaoMemoria = 0;
-        while (posicaoMemoria < tamanhoMemoria / tamanhoPagina) {
-            // Verifica se há espaço livre na memória física
+        while (posicaoMemoria < tamanhoMemoria / tamanhoPagina) { // While que percorre a memória
+            // Verifica se tem espaço livre na memória para adicionar uma página
             if (pagesInMemory[posicaoMemoria].process == -1 && listaP[posicao].espacoMemoria > 0 && listaP[posicao].sequencia[k] != 0) {
                 pagesInMemory[posicaoMemoria].process = listaP[posicao].id;
                 pagesInMemory[posicaoMemoria].page = listaP[posicao].sequencia[k];
@@ -128,7 +133,7 @@ void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
                 pagesInMemory[posicaoMemoria].frequency = 1;
                 break;
             }
-            // Caso onde a página já está na memória, incrementa sua frequência
+            // Se a página já está na memória, incrementa a frequência de acessos
             else if (listaP[posicao].id == pagesInMemory[posicaoMemoria].process &&
                      listaP[posicao].sequencia[k] == pagesInMemory[posicaoMemoria].page) {
                 pagesInMemory[posicaoMemoria].frequency += 1;
@@ -138,9 +143,9 @@ void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
             posicaoMemoria++;
         }
 
-        // Caso onde não há mais espaço livre ou o espacoMemoria do processo é <= 0
+        // Condicional que verifica que não há mais espaço livre na memória mas tem páginas para ser acessada ainda, e chama o algoritmo de substituição
         if ((posicaoMemoria >= tamanhoMemoria / tamanhoPagina || listaP[posicao].espacoMemoria <= 0) && listaP[posicao].sequencia[k] != 0) {
-            if(strcmp(politicaDeMemoria, "local") == 0){
+            if(strcmp(politicaDeMemoria, "local") == 0){ // Escopo local
                 
                 int posicaoTroca = findPageToReplace(pagesInMemory, listaP[posicao].id);
 
@@ -153,8 +158,8 @@ void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
                 listaP[posicao].sequencia[k] = 0;
             }
                 
-            }else{
-                int posicaoTroca = findGlobalPageToReplace(pagesInMemory);
+            }else{ // Escopo local
+                int posicaoTroca = findGlobalPageToReplace(pagesInMemory, posicao, listaP[posicao].id);
 
                 if (posicaoTroca != -1) {
                 trocasPaginas++;
@@ -182,7 +187,8 @@ void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
                 }
             }
             printf("\n");
-            printf("|---------------------------------------------------|\n");
+            printf("|---------------------------------------------------|\n\n");
+            sleep(1);
         }
         listaP[posicao].vezesAcessado++;
         }
