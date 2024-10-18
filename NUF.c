@@ -57,7 +57,27 @@ DadosProcessos *listaP = NULL; // Ponteiro para a lista de processos
 
 
 //------------------------------------------- Algortimo de MEMORIA NUF --------------------------------------------------------------------------------------------
+int findGlobalPageToReplace(Memory *pagesInMemory) {
+    int frequency = INT_MAX;
+    int page = INT_MAX;
+    int id = INT_MAX;
+    int position = -1;
 
+    for (int i = 0; i < tamanhoMemoria / tamanhoPagina; i++) {
+        if (pagesInMemory[i].process != -1) {  // Considera apenas páginas ocupadas
+            if (pagesInMemory[i].frequency < frequency || 
+               (pagesInMemory[i].frequency == frequency && pagesInMemory[i].process < id) || 
+               (pagesInMemory[i].frequency == frequency && pagesInMemory[i].process == id && pagesInMemory[i].page < page)) {
+                frequency = pagesInMemory[i].frequency;
+                page = pagesInMemory[i].page;
+                id = pagesInMemory[i].process;
+                position = i;
+            }
+        }
+    }
+    
+    return position; // Retorna a posição da página menos usada globalmente
+}
 int findPageToReplace(Memory *pagesInMemory, int idProcesso){ //Função que encontra página para substituir
     int frequency = INT_MAX;
     int page = INT_MAX;
@@ -72,83 +92,86 @@ int findPageToReplace(Memory *pagesInMemory, int idProcesso){ //Função que enc
             }
         }
     }
+
+    if (position == -1) {
+        // Escolher uma posição alternativa para a troca, caso nenhuma posição do processo seja encontrada
+        for(int i = 0; i < tamanhoMemoria / tamanhoPagina; i++) {
+            if (pagesInMemory[i].process == -1) {
+                return i;
+            }
+        }
+    }
+
     return position;
 }
 
+// processo4|4|22|90|4096|1 2 2 2 8 8 8 4 4 7 7 7 2 1 3 2 1 2 2 3 4 3 2 2 1 2 2 2 3 4 3 4 4 4 2 3 2 1 3 2 1 2 2 3 4 3 2 2
+
 void NUF(DadosProcessos *listaP, int posicao, int tamanhoMemoria){
-    int paginas = listaP[posicao].qtdMemoria / tamanhoPagina * 75/100;
-    // listaP[posicao].espacoMemoria = paginas;
-    // printf("Páginas %d\n", paginas);
-        
-        for(int i = 0; i < clockCPU * acessoPorCiclo; i++){
-            printf("\n");
-            // printf("Executando pela %d vez \n", i);
-            int k = i;
-            int count = 0;
-            if(listaP[posicao].sequencia[i] == 0){
-                count = count + (clockCPU * acessoPorCiclo) * listaP[posicao].vezesAcessado;
-                k = k + (clockCPU * acessoPorCiclo) * listaP[posicao].vezesAcessado;
+    int paginas = listaP[posicao].qtdMemoria / tamanhoPagina * 75 / 100;
+
+    for(int i = 0; i < clockCPU * acessoPorCiclo; i++) {
+        int k = i;
+        if (listaP[posicao].sequencia[i] == 0) {
+            k += (clockCPU * acessoPorCiclo) * listaP[posicao].vezesAcessado;
+        }
+
+        int posicaoMemoria = 0;
+        while (posicaoMemoria < tamanhoMemoria / tamanhoPagina) {
+            // Verifica se há espaço livre na memória física
+            if (pagesInMemory[posicaoMemoria].process == -1 && listaP[posicao].espacoMemoria > 0 && listaP[posicao].sequencia[k] != 0) {
+                pagesInMemory[posicaoMemoria].process = listaP[posicao].id;
+                pagesInMemory[posicaoMemoria].page = listaP[posicao].sequencia[k];
+                printf("Página %d adicionada na posição %d\n\n", listaP[posicao].sequencia[k], posicaoMemoria);
+                listaP[posicao].sequencia[k] = 0;
+                listaP[posicao].espacoMemoria -= 1;
+                pagesInMemory[posicaoMemoria].frequency = 1;
+                break;
             }
-            // for(int j=0; j < clockCPU * acessoPorCiclo; j++){
-            int posicaoMemoria = 0;
-            while(1){
-                // printf("Posição na memória %d \n", posicaoMemoria);
-                if(listaP[posicao].id == pagesInMemory[posicaoMemoria].process){
-                    if(pagesInMemory[posicaoMemoria].page == 0 && listaP[posicao].espacoMemoria > 0 && listaP[posicao].sequencia[k] != 0){
-                        pagesInMemory[posicaoMemoria].process = listaP[posicao].id;
-                        pagesInMemory[posicaoMemoria].page = listaP[posicao].sequencia[k];
-                        printf("Página %d adicionada na posição %d\n\n", listaP[posicao].sequencia[k], posicaoMemoria);
-                        listaP[posicao].sequencia[k] = 0;
-                        listaP[posicao].espacoMemoria -= 1;
-                        printf("O processo %d tem mais %d de espaço para armazenamento \n", listaP[posicao].id, listaP[posicao].espacoMemoria);
-                        pagesInMemory[posicaoMemoria].frequency +=1;
-                        break;
-                    }
-                    else if(listaP[posicao].sequencia[k] == pagesInMemory[posicaoMemoria].page){
-                        pagesInMemory[posicaoMemoria].frequency +=1;
-                        // printf("Processo: %d | Página: %d | Frequência: %d \n", pagesInMemory[posicaoMemoria].process, pagesInMemory[posicaoMemoria].page, pagesInMemory[posicaoMemoria].frequency);
-                        listaP[posicao].sequencia[k] = 0;
-                        break;
-                    }
-                    else{
-                        posicaoMemoria++;
-                    }
+            // Caso onde a página já está na memória, incrementa sua frequência
+            else if (listaP[posicao].id == pagesInMemory[posicaoMemoria].process &&
+                     listaP[posicao].sequencia[k] == pagesInMemory[posicaoMemoria].page) {
+                pagesInMemory[posicaoMemoria].frequency += 1;
+                listaP[posicao].sequencia[k] = 0;
+                break;
+            }
+            posicaoMemoria++;
+        }
+
+        // Caso onde não há mais espaço livre ou o espacoMemoria do processo é <= 0
+        if ((posicaoMemoria >= tamanhoMemoria / tamanhoPagina || listaP[posicao].espacoMemoria <= 0) && listaP[posicao].sequencia[k] != 0) {
+            if(strcmp(politicaDeMemoria, "local") == 0){
+                
+                int posicaoTroca = findPageToReplace(pagesInMemory, listaP[posicao].id);
+
+                if (posicaoTroca != -1) {
+                trocasPaginas++;
+                pagesInMemory[posicaoTroca].process = listaP[posicao].id;
+                pagesInMemory[posicaoTroca].page = listaP[posicao].sequencia[k];
+                pagesInMemory[posicaoTroca].frequency = 1;
+                printf("Página %d adicionada na posição %d\n\n", listaP[posicao].sequencia[k], posicaoTroca);
+                listaP[posicao].sequencia[k] = 0;
+            }
+                
+            }else{
+                int posicaoTroca = findGlobalPageToReplace(pagesInMemory);
+
+                if (posicaoTroca != -1) {
+                trocasPaginas++;
+                if(listaP[posicao].id != pagesInMemory[posicaoTroca].process){
+                    listaP[posicao].espacoMemoria += 1;
                 }
-                else if(pagesInMemory[posicaoMemoria].process == -1 && listaP[posicao].espacoMemoria > 0 && listaP[posicao].sequencia[k] != 0){
-                        pagesInMemory[posicaoMemoria].process = listaP[posicao].id;
-                        pagesInMemory[posicaoMemoria].page = listaP[posicao].sequencia[k];
-                        printf("Página %d adicionada na posição %d\n\n", listaP[posicao].sequencia[k], posicaoMemoria);
-                        listaP[posicao].sequencia[k] = 0;
-                        // printf("Página %d\n", listaP[posicao].sequencia[k]);
-                        listaP[posicao].espacoMemoria -= 1;
-                        printf("O processo %d tem mais %d de espaço para armazenamento \n", listaP[posicao].id, listaP[posicao].espacoMemoria);
-                        pagesInMemory[posicaoMemoria].frequency +=1;
-                        posicaoMemoria++;
-                        break;
-                }
-                else{
-                    if(listaP[posicao].sequencia[k] != 0){
-                        int posicaoTroca = findPageToReplace(pagesInMemory, listaP[posicao].id);
-                        trocasPaginas++;
-                        pagesInMemory[posicaoTroca].process = listaP[posicao].id;
-                        pagesInMemory[posicaoTroca].page = listaP[posicao].sequencia[k];
-                        pagesInMemory[posicaoTroca].frequency = 1;
-                        printf("Página %d adicionada na posição %d\n\n", listaP[posicao].sequencia[k], posicaoTroca);
-                        listaP[posicao].sequencia[k] = 0;
-                        break;
-                    }
-                    break;
-                }
+                pagesInMemory[posicaoTroca].process = listaP[posicao].id;
+                pagesInMemory[posicaoTroca].page = listaP[posicao].sequencia[k];
+                pagesInMemory[posicaoTroca].frequency = 1;
+                printf("Página %d adicionada na posição %d\n\n", listaP[posicao].sequencia[k], posicaoTroca);
+                listaP[posicao].sequencia[k] = 0;
+            }
             }
 
-            // printf("[");
+        }
 
-            // for(int i = 0; i < listaP[posicao].tamanho_sequencia; i++){
-               
-            //     printf(" %d,",listaP[posicao].sequencia[i]);
 
-            // }
-            //     printf(" ]\n");
             
             
 //------------------------------------------ Printa a memória ----------------------------------------------------------
@@ -322,7 +345,7 @@ void *executando_processos(void* arg){
 
             // Aplicacao do algoritmo de gerenciamento de memoria NUF
             NUF(listaP, posicao, tamanhoMemoria);
-
+            
             if(listaP[posicao].tempo_execucao <= 0){ //Processo encerrou
                 for (int i = 0; i < tamanhoMemoria/tamanhoPagina; i++){
                     if (listaP[posicao].id == pagesInMemory[i].process){
@@ -382,6 +405,7 @@ void *recebe_novos_processos(void* arg){
             listaP[iterador - 1].latencia = 0;
             listaP[iterador - 1].tamanho_sequencia = 0;
             listaP[iterador - 1].espacoMemoria = listaP[iterador -1].qtdMemoria / tamanhoPagina * 75/100;
+            listaP[iterador - 1].vezesAcessado = 0;
 
             // Lê a sequência de acessos se existir
             if (sequencia_str != NULL) {
